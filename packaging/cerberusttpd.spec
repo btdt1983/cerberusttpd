@@ -3,7 +3,7 @@
 
 Name:           cerberusttpd
 Version:        %{ver}
-Release:        2%{?dist}
+Release:        1%{?dist}
 Summary:        File sharing server with PAM login, TOTP 2FA, HTTP/3 and resumable transfers
 License:        AGPL-3.0-only
 BuildArch:      x86_64
