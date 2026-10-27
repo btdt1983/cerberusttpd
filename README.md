@@ -56,13 +56,19 @@ Back up `/var/lib/cerberusttpd`, at least:
 Anyone who has `ca-key.pem` or `2fa.key` can forge certificates or 2FA codes: keep them safe.
 The RPM never removes `/var/lib/cerberusttpd` or the `cerberusttpd` user.
 
-## Ports, nginx and your own domain
+## Ports and TLS
 
-The shipped configuration listens on 8443 (TCP and UDP; UDP is for HTTP/3), so it can run
-next to a web server such as nginx that holds ports 80 and 443. `tls = acme` (Let's Encrypt)
-does not work as built yet: TLS-ALPN-01 needs port 443 and the unprivileged `serve` process
-cannot open port 80. For a domain there are two routes: DNS-01 (no open port needed) or
-nginx as an SNI passthrough.
+By default Cerberusttpd listens on port 8443 (`addr` in the config): TCP for HTTP/1.1 and
+HTTP/2, UDP for HTTP/3. Both must be reachable; the firewalld service opens them. Because it
+does not use 80 or 443, it can run next to a web server such as nginx.
+
+`tls = local` (the default) uses the private CA described above. `tls = acme` is meant for a
+public domain with Let's Encrypt (via certmagic) but is **experimental and untested**: it
+answers TLS-ALPN-01 challenges on the TLS listener, so that listener has to be reachable on
+port 443, and HTTP-01 is not possible because the unprivileged `serve` process cannot open
+port 80. If another server already holds port 443, you would need to pass TLS traffic for
+your domain through to Cerberusttpd by SNI (for example with the nginx `stream` module).
+DNS-01, which needs no open port, is not implemented.
 
 ## Limitations
 
