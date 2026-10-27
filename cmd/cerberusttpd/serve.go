@@ -48,6 +48,7 @@ func serveMain(args []string) error {
 	}
 	w := web.New(hc)
 	w.MaxUpload = o.maxUpload
+	tcp, udp = w.CountListener(tcp), w.CountPacketConn(udp)
 
 	var tlsConf *tls.Config
 	switch o.mode {

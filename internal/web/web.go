@@ -103,13 +103,8 @@ func (s *Server) Handler(altSvc string) http.Handler {
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
-		if r.URL.Path == "/api/stats" { // the stream itself is not traffic
-			csrf.ServeHTTP(w, r)
-			return
-		}
-		cw, done := s.count(w, r)
-		defer done()
-		csrf.ServeHTTP(cw, r)
+		defer s.track(r)()
+		csrf.ServeHTTP(w, r)
 	})
 }
 

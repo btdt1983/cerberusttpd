@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"runtime"
@@ -48,8 +47,9 @@ type snapshot struct {
 	Users     []userStat `json:"users"`
 }
 
-// stats counts payload bytes (HTTP bodies, not TLS/headers) and samples the
-// machine once a second. Everything a viewer sees comes from one shared sample.
+// stats counts the bytes the server reads and writes on its sockets (see
+// wire.go: TLS, QUIC and HTTP headers included) and samples the machine once
+// a second. Everything a viewer sees comes from one shared sample.
 type stats struct {
 	in, out  atomic.Int64
 	inflight atomic.Int32
@@ -169,51 +169,15 @@ func uptime() int64 {
 	return int64(f)
 }
 
-// counting wraps a request so payload bytes feed the global and per-session counters.
-
-type countWriter struct {
-	http.ResponseWriter
-	global *atomic.Int64
-}
-
-func (c *countWriter) Write(p []byte) (int, error) {
-	n, err := c.ResponseWriter.Write(p)
-	c.global.Add(int64(n))
-	return n, err
-}
-func (c *countWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
-func (c *countWriter) Flush() {
-	if f, ok := c.ResponseWriter.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-type countReader struct {
-	io.ReadCloser
-	global *atomic.Int64
-}
-
-func (c *countReader) Read(p []byte) (int, error) {
-	n, err := c.ReadCloser.Read(p)
-	c.global.Add(int64(n))
-	return n, err
-}
-
-// count returns the wrapped writer and a func to call when the request ends.
-func (s *Server) count(w http.ResponseWriter, r *http.Request) (http.ResponseWriter, func()) {
-	if r.Body != nil && r.Body != http.NoBody {
-		r.Body = &countReader{ReadCloser: r.Body, global: &s.stats.in}
-	}
+// track marks a file transfer as in flight until the returned func is called.
+func (s *Server) track(r *http.Request) func() {
 	transfer := (r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/files/") && !strings.HasSuffix(r.URL.Path, "/")) ||
 		(r.Method == http.MethodPatch && strings.HasPrefix(r.URL.Path, "/tus/"))
-	if transfer {
-		s.stats.inflight.Add(1)
+	if !transfer {
+		return func() {}
 	}
-	return &countWriter{ResponseWriter: w, global: &s.stats.out}, func() {
-		if transfer {
-			s.stats.inflight.Add(-1)
-		}
-	}
+	s.stats.inflight.Add(1)
+	return func() { s.stats.inflight.Add(-1) }
 }
 
 // statsStream is the live feed behind the sidebar (Server-Sent Events).

@@ -72,7 +72,10 @@ DNS-01, which needs no open port, is not implemented.
 
 ## Limitations
 
-- Bandwidth counts HTTP content only, not TLS/QUIC overhead or headers.
+- Bandwidth counts everything the server reads and writes on its sockets, so TLS and QUIC
+  overhead, handshakes and HTTP headers are included (IP/TCP/UDP headers and TCP
+  retransmissions are not). The sidebar's own live stream counts too: a few hundred bytes
+  per second for each open page.
 - An open page does not keep your session alive: after 30 minutes without a click you are signed out.
 - Deleting is permanent (no trash); moving is not possible yet.
 - SELinux: runs as `unconfined_service_t`. A dedicated confining policy needs
