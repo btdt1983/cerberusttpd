@@ -8,7 +8,7 @@
   const sync = () => {
     const n = boxes().filter((b) => b.checked).length;
     btn.disabled = n === 0;
-    btn.textContent = n > 1 ? `Verwijder ${n} geselecteerde` : 'Verwijder geselecteerde';
+    btn.textContent = n > 1 ? `Delete ${n} selected` : 'Delete selected';
     all.checked = n > 0 && n === boxes().length;
     all.indeterminate = n > 0 && n < boxes().length;
   };

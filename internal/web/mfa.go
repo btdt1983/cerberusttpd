@@ -55,7 +55,7 @@ func (s *Server) expire(w http.ResponseWriter, r *http.Request) {
 		s.sess.destroy(c.Value)
 	}
 	s.setCookie(w, "", -1)
-	s.render(w, http.StatusUnauthorized, "login", map[string]any{"Error": "Inloggen is verlopen of te vaak mislukt. Log opnieuw in."})
+	s.render(w, http.StatusUnauthorized, "login", map[string]any{"Error": "Your sign-in expired or failed too many times. Please sign in again."})
 }
 
 func (s *Server) mfaQR(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +102,7 @@ func (s *Server) mfaSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 		if resp.Err == "denied" {
 			s.limit.Fail(ip, sess.User)
-			s.renderMFA(w, r, sess, http.StatusUnauthorized, "Ongeldige code.")
+			s.renderMFA(w, r, sess, http.StatusUnauthorized, "Invalid code.")
 			return
 		}
 		s.expire(w, r)

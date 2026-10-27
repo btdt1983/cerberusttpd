@@ -38,7 +38,7 @@ func (s *Server) editTarget(w http.ResponseWriter, r *http.Request, rel string) 
 		return nil, st, false
 	}
 	if _, err := sess.worker.Call(worker.Request{Op: "stat", Path: rel}, &st); err != nil {
-		http.Error(w, "interne fout", http.StatusInternalServerError)
+		http.Error(w, "internal error", http.StatusInternalServerError)
 		return nil, st, false
 	}
 	if st.Err != "" {
@@ -66,7 +66,7 @@ func (s *Server) editDo(mode string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, 8192)
 		if err := r.ParseForm(); err != nil {
-			http.Error(w, "ongeldig verzoek", http.StatusBadRequest)
+			http.Error(w, "invalid request", http.StatusBadRequest)
 			return
 		}
 		rel := relPath(r.PostForm.Get("path"))
@@ -77,13 +77,13 @@ func (s *Server) editDo(mode string) http.HandlerFunc {
 		req := worker.Request{Op: mode, Path: rel, Name: strings.TrimSpace(r.PostForm.Get("name"))}
 		var resp worker.Response
 		if _, err := sess.worker.Call(req, &resp); err != nil {
-			http.Error(w, "interne fout", http.StatusInternalServerError)
+			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
 		if resp.Err != "" {
 			msg := errText[resp.Err]
 			if msg == "" {
-				msg = "Er ging iets mis."
+				msg = "Something went wrong."
 			}
 			status := http.StatusConflict
 			switch resp.Err {
@@ -113,11 +113,11 @@ func actionURL(kind, rel string) string {
 const maxDeleteBatch = 200
 
 var errText = map[string]string{
-	"forbidden": "Geen rechten om dit te doen.",
-	"exists":    "Er bestaat al iets met die naam.",
-	"notempty":  "De map is niet leeg.",
-	"invalid":   "Ongeldige naam.",
-	"notfound":  "Niet gevonden.",
+	"forbidden": "You do not have permission to do this.",
+	"exists":    "Something with that name already exists.",
+	"notempty":  "The folder is not empty.",
+	"invalid":   "Invalid name.",
+	"notfound":  "Not found.",
 }
 
 type delItem struct {
@@ -166,7 +166,7 @@ func (s *Server) statAll(sess *Session, paths []string) ([]delItem, bool) {
 		var st worker.Response
 		it := delItem{Path: p, Name: path.Base(p)}
 		if _, err := sess.worker.Call(worker.Request{Op: "stat", Path: p}, &st); err != nil {
-			it.Error = "Interne fout."
+			it.Error = "Internal error."
 		} else if st.Err != "" {
 			it.Error = errText[st.Err]
 		} else if st.Kind == "dir" {
@@ -187,7 +187,7 @@ func (s *Server) deleteDo(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "ongeldig verzoek", http.StatusBadRequest)
+		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
 	paths := deletePaths(r.PostForm["path"])
@@ -201,13 +201,13 @@ func (s *Server) deleteDo(w http.ResponseWriter, r *http.Request) {
 		var resp worker.Response
 		it := delItem{Path: p, Name: path.Base(p)}
 		if _, err := sess.worker.Call(worker.Request{Op: "delete", Path: p, Recursive: recursive}, &resp); err != nil {
-			it.Error = "Interne fout."
+			it.Error = "Internal error."
 		} else if resp.Err == "notempty" {
-			it.Error = "De map is niet leeg; vink aan dat de inhoud ook weg mag."
+			it.Error = "The folder is not empty; tick the box to delete its contents too."
 		} else if resp.Err != "" {
 			it.Error = errText[resp.Err]
 			if it.Error == "" {
-				it.Error = "Er ging iets mis."
+				it.Error = "Something went wrong."
 			}
 		}
 		if it.Error != "" {

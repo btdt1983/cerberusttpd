@@ -39,9 +39,9 @@
       headers: { ...H, 'Upload-Length': String(file.size),
         'Upload-Metadata': `filename ${b64(file.name)},dir ${b64(dir)}` },
     });
-    if (r.status === 409) throw new Error('bestaat al');
-    if (r.status === 403) throw new Error('geen schrijfrechten');
-    if (!r.ok) throw new Error((await r.text()).trim() || `fout ${r.status}`);
+    if (r.status === 409) throw new Error('already exists');
+    if (r.status === 403) throw new Error('no write permission');
+    if (!r.ok) throw new Error((await r.text()).trim() || `error ${r.status}`);
     return r.headers.get('Location');
   }
 
@@ -64,21 +64,21 @@
           body: file.slice(offset, end),
         });
         if (r.status === 409) {
-          if (++tries > 5) throw new Error('offset komt niet overeen');
+          if (++tries > 5) throw new Error('offset mismatch');
           const o = await status(url);
-          if (o === null) throw Object.assign(new Error('upload niet gevonden'), { fatal: true });
+          if (o === null) throw Object.assign(new Error('upload not found'), { fatal: true });
           offset = o;
           continue;
         }
         if (r.status === 422) {
           store.del(key);
-          throw Object.assign(new Error('bestaat al'), { fatal: true });
+          throw Object.assign(new Error('already exists'), { fatal: true });
         }
         if ([403, 404, 413, 507].includes(r.status)) {
           if (r.status !== 403) store.del(key);
-          throw Object.assign(new Error((await r.text()).trim() || `fout ${r.status}`), { fatal: true });
+          throw Object.assign(new Error((await r.text()).trim() || `error ${r.status}`), { fatal: true });
         }
-        if (!r.ok) throw new Error(`fout ${r.status}`);
+        if (!r.ok) throw new Error(`error ${r.status}`);
         offset = parseInt(r.headers.get('Upload-Offset'), 10);
         tries = 0;
         ui.bar.value = (offset / file.size) * 100;
@@ -86,7 +86,7 @@
         if (offset >= file.size) break;
       } catch (e) {
         if (e.fatal || ++tries > 5) throw e;
-        ui.state.textContent = 'opnieuw proberen…';
+        ui.state.textContent = 'retrying…';
         await sleep(1000 * tries);
         offset = (await status(url).catch(() => null)) ?? offset;
       }
@@ -100,10 +100,10 @@
       const ui = row(file.name);
       try {
         await send(file, ui);
-        ui.bar.value = 100; ui.state.textContent = 'klaar';
+        ui.bar.value = 100; ui.state.textContent = 'done';
       } catch (e) {
         failed = true;
-        ui.state.textContent = e.message || 'mislukt';
+        ui.state.textContent = e.message || 'failed';
         ui.state.className = 'bad';
       }
     }

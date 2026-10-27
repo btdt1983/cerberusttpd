@@ -14,20 +14,20 @@ import (
 // startup panic under systemd), so render every page with sample data.
 func TestTemplatesRender(t *testing.T) {
 	tpl := newTemplates()
-	row := map[string]any{"Name": "map & \"x\"/", "Href": "x/", "Rename": "/rename?path=x", "Delete": "/delete?path=x", "Full": "x",
+	row := map[string]any{"Name": "folder & \"x\"/", "Href": "x/", "Rename": "/rename?path=x", "Delete": "/delete?path=x", "Full": "x",
 		"Icon": "folder", "Download": "x?dl", "Dir": true, "Size": int64(0), "MTime": time.Now()}
 	file := map[string]any{"Name": "<b>a</b>.txt", "Href": "a.txt", "Rename": "/rename?path=a", "Delete": "/delete?path=a", "Full": "a.txt",
 		"Icon": "file", "Download": "a.txt?dl", "Dir": false, "Size": int64(2048), "MTime": time.Now()}
 	_ = row
 	rows := []any{}
 	pages := map[string]any{
-		"login":    map[string]any{"Error": "fout"},
+		"login":    map[string]any{"Error": "failed"},
 		"mfa":      map[string]any{"Enroll": true, "Secret": "ABCD EFGH", "User": "u", "Error": "x"},
 		"recovery": map[string]any{"Codes": []string{"aaaaa-bbbbb"}},
-		"error":    map[string]any{"Title": "Niet gevonden", "Message": "weg"},
-		"edit":     map[string]any{"User": "u", "Path": "a/b", "Name": "b", "Back": "/files/a/", "Error": "dubbel"},
-		"delete":   map[string]any{"User": "u", "Items": []delItem{{Path: "a", Name: "a", IsDir: true}, {Path: "b", Name: "b", Error: "nee"}}, "AnyDir": true, "Back": "/files/"},
-		"deleted":  map[string]any{"User": "u", "Failed": []delItem{{Path: "a", Name: "a", Error: "nee"}}, "Done": 2, "Retry": "/delete?path=a", "Back": "/files/"},
+		"error":    map[string]any{"Title": "Not found", "Message": "gone"},
+		"edit":     map[string]any{"User": "u", "Path": "a/b", "Name": "b", "Back": "/files/a/", "Error": "duplicate"},
+		"delete":   map[string]any{"User": "u", "Items": []delItem{{Path: "a", Name: "a", IsDir: true}, {Path: "b", Name: "b", Error: "no"}}, "AnyDir": true, "Back": "/files/"},
+		"deleted":  map[string]any{"User": "u", "Failed": []delItem{{Path: "a", Name: "a", Error: "no"}}, "Done": 2, "Retry": "/delete?path=a", "Back": "/files/"},
 		"browse": map[string]any{"Title": "Docs", "Crumbs": crumbs("Docs/sub"), "User": "u", "Admin": true, "Path": "/Docs/", "Root": false,
 			"Cut": true, "Writable": true, "Dir": "Docs", "Rows": append(rows, file, row)},
 	}

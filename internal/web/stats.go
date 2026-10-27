@@ -223,11 +223,11 @@ func (s *Server) statsStream(w http.ResponseWriter, r *http.Request) {
 	token := cookieValue(r)
 	sess := s.sess.peek(token)
 	if sess == nil {
-		http.Error(w, "niet ingelogd", http.StatusUnauthorized)
+		http.Error(w, "not signed in", http.StatusUnauthorized)
 		return
 	}
 	if s.stats.streams.Load() >= maxStreams || sess.streams.Load() >= 6 {
-		http.Error(w, "te veel open verbindingen", http.StatusTooManyRequests)
+		http.Error(w, "too many open connections", http.StatusTooManyRequests)
 		return
 	}
 	s.stats.streams.Add(1)

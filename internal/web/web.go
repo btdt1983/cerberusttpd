@@ -150,14 +150,14 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	user, pass, ip := r.PostForm.Get("user"), r.PostForm.Get("password"), clientIP(r)
 	if ok, wait := s.limit.Allow(ip, user); !ok {
 		w.Header().Set("Retry-After", itoa(int(wait.Seconds())+1))
-		s.render(w, http.StatusTooManyRequests, "login", map[string]any{"Error": "Te veel pogingen, probeer het later opnieuw."})
+		s.render(w, http.StatusTooManyRequests, "login", map[string]any{"Error": "Too many attempts, please try again later."})
 		return
 	}
 	select {
 	case s.loginSem <- struct{}{}:
 		defer func() { <-s.loginSem }()
 	default:
-		s.render(w, http.StatusServiceUnavailable, "login", map[string]any{"Error": "Server is druk, probeer het zo opnieuw."})
+		s.render(w, http.StatusServiceUnavailable, "login", map[string]any{"Error": "The server is busy, please try again in a moment."})
 		return
 	}
 	var resp helper.Response
@@ -167,11 +167,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			f.Close()
 		}
 		s.limit.Fail(ip, user)
-		status, msg := http.StatusUnauthorized, "Ongeldige gebruikersnaam of wachtwoord."
+		status, msg := http.StatusUnauthorized, "Invalid username or password."
 		if resp.Err == "throttled" {
-			status, msg = http.StatusTooManyRequests, "Te veel pogingen, probeer het later opnieuw."
+			status, msg = http.StatusTooManyRequests, "Too many attempts, please try again later."
 		} else if err != nil || resp.Err == "internal" {
-			status, msg = http.StatusInternalServerError, "Inloggen is nu niet mogelijk."
+			status, msg = http.StatusInternalServerError, "Signing in is not possible right now."
 		}
 		s.render(w, status, "login", map[string]any{"Error": msg})
 		return
@@ -305,7 +305,7 @@ func (s *Server) listing(w http.ResponseWriter, sess *Session, rel string) {
 	if cur != "/" {
 		cur += "/"
 	}
-	title := "Bestanden"
+	title := "Files"
 	if rel != "" {
 		title = path.Base(rel)
 	}
@@ -314,14 +314,14 @@ func (s *Server) listing(w http.ResponseWriter, sess *Session, rel string) {
 
 // fail answers an HTML page request with a readable error page.
 func (s *Server) fail(w http.ResponseWriter, code string) {
-	status, title, msg := http.StatusInternalServerError, "Er ging iets mis", "Probeer het later opnieuw."
+	status, title, msg := http.StatusInternalServerError, "Something went wrong", "Please try again later."
 	switch code {
 	case "forbidden":
-		status, title, msg = http.StatusForbidden, "Geen toegang", "Je hebt geen rechten voor deze map of dit bestand."
+		status, title, msg = http.StatusForbidden, "Access denied", "You do not have permission to access this folder or file."
 	case "notfound":
-		status, title, msg = http.StatusNotFound, "Niet gevonden", "Dit bestand of deze map bestaat niet (meer)."
+		status, title, msg = http.StatusNotFound, "Not found", "This file or folder does not exist (any more)."
 	case "invalid":
-		status, title, msg = http.StatusBadRequest, "Ongeldig verzoek", "Dit verzoek kan niet worden uitgevoerd."
+		status, title, msg = http.StatusBadRequest, "Invalid request", "This request cannot be carried out."
 	}
 	s.render(w, status, "error", map[string]any{"Title": title, "Message": msg})
 }

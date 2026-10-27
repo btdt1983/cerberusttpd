@@ -70,7 +70,7 @@ type crumb struct {
 
 // crumbs turns "a/b/c" into clickable path parts, each link properly escaped.
 func crumbs(rel string) []crumb {
-	out := []crumb{{Name: "Start", Href: "/files/"}}
+	out := []crumb{{Name: "Home", Href: "/files/"}}
 	if rel = strings.Trim(rel, "/"); rel == "" {
 		out[0].Last = true
 		return out
