@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<service>
+  <short>Cerberusttpd</short>
+  <description>Cerberusttpd file sharing server: HTTPS (TCP) and HTTP/3 (UDP).</description>
+  <port protocol="tcp" port="8443"/>
+  <port protocol="udp" port="8443"/>
+</service>

@@ -1,0 +1,12 @@
+#%PAM-1.0
+# Web login: password check and account validity only, no PAM session.
+# faillock is a per-user backstop against distributed guessing (the app also
+# throttles per ip+user); threshold is deliberately higher than the app's so
+# one LAN client cannot easily lock an account.
+auth       required     pam_faillock.so preauth silent deny=10 unlock_time=300 fail_interval=900
+auth       [success=1 default=bad] pam_unix.so try_first_pass
+auth       [default=die] pam_faillock.so authfail deny=10 unlock_time=300 fail_interval=900
+auth       sufficient   pam_faillock.so authsucc deny=10 unlock_time=300 fail_interval=900
+auth       required     pam_deny.so
+account    required     pam_faillock.so
+account    include      password-auth

@@ -1,0 +1,38 @@
+[Unit]
+Description=Cerberusttpd file sharing server
+Documentation=file:///usr/share/doc/cerberusttpd/README.md
+After=network-online.target nss-user-lookup.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# `run` must start as root: it binds the ports, does PAM and starts the
+# per-user workers, then hands the network side to an unprivileged user.
+ExecStart=/opt/cerberusttpd/cerberusttpd run -config /etc/cerberusttpd/cerberusttpd.conf
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+LimitNOFILE=65536
+
+# Hardening. Deliberately NOT set (they would break serving home directories
+# or PAM): ProtectHome, PrivateUsers, DynamicUser, ProtectSystem=strict,
+# ProcSubset=pid (the sidebar reads /proc/stat, meminfo, loadavg).
+# AF_NETLINK is needed for the interface list in the certificate and for audit.
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_READ_SEARCH CAP_AUDIT_WRITE CAP_KILL CAP_NET_BIND_SERVICE
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ProtectSystem=full
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
