@@ -1,4 +1,4 @@
-module cerberusttpd
+module github.com/btdt1983/cerberusttpd
 
 go 1.26.0
 

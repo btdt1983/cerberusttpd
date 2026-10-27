@@ -22,12 +22,12 @@ import (
 	"syscall"
 	"time"
 
-	"cerberusttpd/internal/ipc"
-	"cerberusttpd/internal/limiter"
-	"cerberusttpd/internal/localca"
-	"cerberusttpd/internal/mfa"
-	"cerberusttpd/internal/pamauth"
-	"cerberusttpd/internal/totp"
+	"github.com/btdt1983/cerberusttpd/internal/ipc"
+	"github.com/btdt1983/cerberusttpd/internal/limiter"
+	"github.com/btdt1983/cerberusttpd/internal/localca"
+	"github.com/btdt1983/cerberusttpd/internal/mfa"
+	"github.com/btdt1983/cerberusttpd/internal/pamauth"
+	"github.com/btdt1983/cerberusttpd/internal/totp"
 )
 
 var userRE = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)

@@ -9,7 +9,7 @@ import (
 	"path"
 	"strings"
 
-	"cerberusttpd/internal/worker"
+	"github.com/btdt1983/cerberusttpd/internal/worker"
 )
 
 // Rename and delete are plain forms: a GET page asks, a POST does it (so the

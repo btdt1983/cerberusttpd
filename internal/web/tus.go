@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	"cerberusttpd/internal/worker"
+	"github.com/btdt1983/cerberusttpd/internal/worker"
 )
 
 // tus 1.0.0 with the creation and termination extensions. An upload id is

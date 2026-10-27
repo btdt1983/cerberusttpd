@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cerberusttpd/internal/worker"
+	"github.com/btdt1983/cerberusttpd/internal/worker"
 )
 
 const (

@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"cerberusttpd/internal/totp"
+	"github.com/btdt1983/cerberusttpd/internal/totp"
 )
 
 const recoveryAlphabet = "abcdefghjkmnpqrstuvwxyz23456789"

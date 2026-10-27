@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"cerberusttpd/internal/worker"
+	"github.com/btdt1983/cerberusttpd/internal/worker"
 )
 
 func workerMain(args []string) error {

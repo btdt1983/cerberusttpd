@@ -21,9 +21,9 @@ import (
 	"github.com/caddyserver/certmagic"
 	"github.com/quic-go/quic-go/http3"
 
-	"cerberusttpd/internal/helper"
-	"cerberusttpd/internal/ipc"
-	"cerberusttpd/internal/web"
+	"github.com/btdt1983/cerberusttpd/internal/helper"
+	"github.com/btdt1983/cerberusttpd/internal/ipc"
+	"github.com/btdt1983/cerberusttpd/internal/web"
 )
 
 var stopping atomic.Bool

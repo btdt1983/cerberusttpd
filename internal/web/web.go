@@ -19,10 +19,10 @@ import (
 	"sync"
 	"time"
 
-	"cerberusttpd/internal/helper"
-	"cerberusttpd/internal/ipc"
-	"cerberusttpd/internal/limiter"
-	"cerberusttpd/internal/worker"
+	"github.com/btdt1983/cerberusttpd/internal/helper"
+	"github.com/btdt1983/cerberusttpd/internal/ipc"
+	"github.com/btdt1983/cerberusttpd/internal/limiter"
+	"github.com/btdt1983/cerberusttpd/internal/worker"
 )
 
 //go:embed static

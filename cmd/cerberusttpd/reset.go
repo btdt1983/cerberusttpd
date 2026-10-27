@@ -11,7 +11,7 @@ import (
 	"regexp"
 )
 
-import "cerberusttpd/internal/mfa"
+import "github.com/btdt1983/cerberusttpd/internal/mfa"
 
 func resetMain(args []string) error {
 	fs := flag.NewFlagSet("2fa-reset", flag.ExitOnError)

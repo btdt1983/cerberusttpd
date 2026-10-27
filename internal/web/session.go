@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cerberusttpd/internal/ipc"
+	"github.com/btdt1983/cerberusttpd/internal/ipc"
 )
 
 const (

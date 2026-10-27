@@ -9,8 +9,8 @@ import (
 
 	"github.com/skip2/go-qrcode"
 
-	"cerberusttpd/internal/helper"
-	"cerberusttpd/internal/ipc"
+	"github.com/btdt1983/cerberusttpd/internal/helper"
+	"github.com/btdt1983/cerberusttpd/internal/ipc"
 )
 
 // pendingSession returns the session of a login waiting for its code.

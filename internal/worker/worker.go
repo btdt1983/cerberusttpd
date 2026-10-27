@@ -17,7 +17,7 @@ import (
 	"strings"
 	"syscall"
 
-	"cerberusttpd/internal/ipc"
+	"github.com/btdt1983/cerberusttpd/internal/ipc"
 )
 
 const maxEntries = 20000

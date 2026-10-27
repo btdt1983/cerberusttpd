@@ -20,10 +20,10 @@ import (
 	"syscall"
 	"time"
 
-	"cerberusttpd/internal/helper"
-	"cerberusttpd/internal/ipc"
-	"cerberusttpd/internal/localca"
-	"cerberusttpd/internal/mfa"
+	"github.com/btdt1983/cerberusttpd/internal/helper"
+	"github.com/btdt1983/cerberusttpd/internal/ipc"
+	"github.com/btdt1983/cerberusttpd/internal/localca"
+	"github.com/btdt1983/cerberusttpd/internal/mfa"
 )
 
 func init() {
