@@ -1,6 +1,6 @@
 # pam's cgo needs _GNU_SOURCE for RTLD_NEXT.
 export CGO_CFLAGS += -D_GNU_SOURCE
-VERSION ?= 0.7.3
+VERSION ?= 0.8.0
 PREFIX  ?= /opt/cerberusttpd
 DESTDIR ?=
 

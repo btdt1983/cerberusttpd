@@ -41,6 +41,9 @@ func runMain(args []string) error {
 			return err
 		}
 	}
+	if err := o.resolve(fs); err != nil {
+		return err
+	}
 
 	if os.Geteuid() != 0 {
 		return errors.New("must start as root (it drops privileges itself)")
@@ -60,6 +63,13 @@ func runMain(args []string) error {
 	// its own subdirectory.
 	if err := os.MkdirAll(o.data, 0o700); err != nil {
 		return err
+	}
+	if o.mode == "acme" {
+		// serve keeps its ACME account and certificates in data/net and must be
+		// able to walk through data. Everything else in there is 0700/0600.
+		if err := os.Chmod(o.data, 0o711); err != nil {
+			return err
+		}
 	}
 	netDir := filepath.Join(o.data, "net")
 	if err := os.MkdirAll(netDir, 0o700); err != nil {
@@ -114,11 +124,32 @@ func runMain(args []string) error {
 		return err
 	}
 
+	var credsR *os.File
+	if o.mode == "acme" && o.dnsProvider != "" {
+		creds, err := readDNSCredentials(o.dnsProvider, o.dnsCreds)
+		if err != nil {
+			return err
+		}
+		r, wr, err := os.Pipe()
+		if err != nil {
+			return err
+		}
+		// A few hundred bytes fit the pipe buffer; no reader needed yet.
+		if _, err := wr.Write(creds); err != nil {
+			return err
+		}
+		wr.Close()
+		credsR = r
+	}
+
 	cmd := exec.Command(exe, append([]string{"serve"}, o.args()...)...)
 	cmd.Dir = "/"
 	cmd.Env = []string{}
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	cmd.ExtraFiles = []*os.File{tcpF, udpF, theirs} // fds 3, 4, 5
+	if credsR != nil {
+		cmd.ExtraFiles = append(cmd.ExtraFiles, credsR) // fd 6: DNS credentials
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Credential: &syscall.Credential{Uid: uint32(uid), Gid: uint32(gid), Groups: []uint32{}},
 		Pdeathsig:  syscall.SIGKILL,
@@ -129,6 +160,9 @@ func runMain(args []string) error {
 	tcpF.Close()
 	udpF.Close()
 	theirs.Close()
+	if credsR != nil {
+		credsR.Close()
+	}
 	log.Printf("run: network process pid=%d as %s; listening on %s (tcp+udp)", cmd.Process.Pid, o.svcUser, o.addr)
 
 	// SIGTERM: ask the network process to drain and wait for it. Only an

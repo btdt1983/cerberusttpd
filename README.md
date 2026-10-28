@@ -62,13 +62,69 @@ By default Cerberusttpd listens on port 8443 (`addr` in the config): TCP for HTT
 HTTP/2, UDP for HTTP/3. Both must be reachable; the firewalld service opens them. Because it
 does not use 80 or 443, it can run next to a web server such as nginx.
 
-`tls = local` (the default) uses the private CA described above. `tls = acme` is meant for a
-public domain with Let's Encrypt (via certmagic) but is **experimental and untested**: it
-answers TLS-ALPN-01 challenges on the TLS listener, so that listener has to be reachable on
-port 443, and HTTP-01 is not possible because the unprivileged `serve` process cannot open
-port 80. If another server already holds port 443, you would need to pass TLS traffic for
-your domain through to Cerberusttpd by SNI (for example with the nginx `stream` module).
-DNS-01, which needs no open port, is not implemented.
+`tls = local` (the default) uses the private CA described above. The shortest setup is one line in `/etc/cerberusttpd/cerberusttpd.conf`:
+
+    domain = files.example.com
+
+A domain implies `tls = acme` and `addr = :443` (set `tls` or `addr` yourself to override). Point
+the domain's A record at the server and keep port 443 reachable over TCP and UDP. This works
+when nothing else uses port 443; otherwise read on.
+
+`tls = acme` gets a public Let's Encrypt certificate for your own domain (via certmagic), so
+clients need no CA import. Point the domain's A record at the server; it does not have to be
+reachable from the internet when you use DNS-01.
+
+**Behind nginx (or another reverse proxy) that owns 80/443.** Optional: only needed when
+something else already holds those ports. Keep cerberusttpd on 8443 and let it answer the
+HTTP-01 challenge on a local port:
+
+    # /etc/cerberusttpd/cerberusttpd.conf
+    domain = files.example.com
+    addr = :8443
+    acme-http-addr = 127.0.0.1:8080
+
+    # nginx: port 80 for this domain must be reachable from the internet
+    server {
+        listen 80;
+        server_name files.example.com;
+        location /.well-known/acme-challenge/ {
+            proxy_pass http://127.0.0.1:8080;
+            proxy_set_header Host $host;      # the challenge is looked up by host name
+        }
+        location / { return 301 https://$host:8443$request_uri; }
+    }
+
+The local port only listens while a certificate is being issued or renewed. `acme-http-addr`
+and `dns-provider` are alternatives.
+
+**DNS-01.** Set `dns-provider = cloudflare` or `transip` and put the credentials in
+a file that only root can read (`chmod 600`), referenced by `dns-credentials`:
+
+    # /etc/cerberusttpd/dns.conf  (cloudflare)
+    api-token = <API token with Zone:DNS:Edit>
+
+    # /etc/cerberusttpd/dns.conf  (transip)
+    login = <username>
+    private-key-file = /etc/cerberusttpd/transip.key
+
+    # /etc/cerberusttpd/cerberusttpd.conf
+    tls = acme
+    domain = files.example.com
+    acme-email = you@example.com
+    dns-provider = cloudflare
+    dns-credentials = /etc/cerberusttpd/dns.conf
+
+The credentials never appear on a command line: `run` reads the file and passes the values to
+the network process over a pipe. DNS-01 needs no inbound port, so it works on 8443 while nginx
+keeps 80 and 443. Try it first with `acme-ca = staging` (untrusted test certificates, no rate
+limit trouble) and switch to `production` when it works.
+
+Without `dns-provider` or `acme-http-addr` it uses TLS-ALPN-01, which needs the TLS listener
+reachable on port 443 (cerberusttpd itself never opens port 80: the unprivileged `serve` process
+cannot). If another server holds 443 and you do not want a proxy for port 80, you would have to
+pass TLS for your domain through by SNI (nginx `stream` module).
+
+All `tls = acme` variants are **new and not yet verified against a live domain**.
 
 ## Limitations
 

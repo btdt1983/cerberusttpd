@@ -8,11 +8,14 @@ import (
 	"crypto/tls"
 	"errors"
 	"flag"
+	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -92,6 +95,41 @@ func serveMain(args []string) error {
 		}
 		certmagic.DefaultACME.Agreed = true
 		certmagic.DefaultACME.Email = o.email
+		switch o.acmeCA {
+		case "production":
+		case "staging":
+			certmagic.DefaultACME.CA = certmagic.LetsEncryptStagingCA
+		default:
+			log.Fatalf("unknown -acme-ca %q (production or staging)", o.acmeCA)
+		}
+		if o.acmeHTTP != "" {
+			host, port, err := net.SplitHostPort(o.acmeHTTP)
+			if err != nil {
+				return fmt.Errorf("acme-http-addr: %v", err)
+			}
+			n, err := strconv.Atoi(port)
+			if err != nil || n < 1024 || n > 65535 {
+				return fmt.Errorf("acme-http-addr: port must be 1024-65535 (the proxy listens on 80), got %q", port)
+			}
+			// HTTP-01 only, on a local port the reverse proxy forwards to.
+			certmagic.DefaultACME.ListenHost = host
+			certmagic.DefaultACME.AltHTTPPort = n
+			certmagic.DefaultACME.DisableTLSALPNChallenge = true
+		}
+		if o.dnsProvider != "" {
+			raw, err := io.ReadAll(os.NewFile(6, "dns-credentials"))
+			if err != nil {
+				return err
+			}
+			prov, err := newDNSProvider(o.dnsProvider, raw)
+			if err != nil {
+				return err
+			}
+			// DNS-01 only: no inbound port is needed, so nginx keeps 80 and 443.
+			certmagic.DefaultACME.DNS01Solver = &certmagic.DNS01Solver{DNSManager: certmagic.DNSManager{DNSProvider: prov}}
+			certmagic.DefaultACME.DisableHTTPChallenge = true
+			certmagic.DefaultACME.DisableTLSALPNChallenge = true
+		}
 		certmagic.Default.Storage = &certmagic.FileStorage{Path: o.data + "/net/acme"}
 		cfg := certmagic.NewDefault()
 		// Async: challenges are answered on the listener we start below.
@@ -118,7 +156,8 @@ func serveMain(args []string) error {
 	}()
 
 	h12 := tlsConf.Clone()
-	h12.NextProtos = []string{"h2", "http/1.1"}
+	// Keep acme-tls/1 (set by certmagic) or TLS-ALPN-01 can never succeed.
+	h12.NextProtos = append([]string{"h2", "http/1.1"}, h12.NextProtos...)
 	srv := &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
