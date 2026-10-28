@@ -1,9 +1,9 @@
 # Cerberusttpd
 
 A self-contained file server in Go: sign in with your Linux account (PAM) plus
-TOTP 2FA, HTTPS with its own local CA, HTTP/3, resumable downloads and uploads
-(tus), file management and a live sidebar with bandwidth, online users and
-server load.
+TOTP 2FA, HTTPS with its own local CA or an automatic Let's Encrypt certificate for your
+domain (`domain = files.example.com` is enough), HTTP/3, resumable downloads and uploads
+(tus), file management and a live sidebar with bandwidth, online users and server load.
 
 ## How it works
 
@@ -32,9 +32,10 @@ Logs: `journalctl -u cerberusttpd -f`. Settings: `/etc/cerberusttpd/cerberusttpd
 
 ## First use
 
-1. Open `https://<server>:8443/` and import the CA once
-   (`/.well-known/cerberusttpd/ca.crt` for Windows/Android, `ca.pem` for Linux/macOS).
-   Firefox has its own certificate store.
+1. Open `https://<server>:8443/`. With the default private CA, import the CA once
+   (`/.well-known/cerberusttpd/ca.crt` for Windows/Android, `ca.pem` for Linux/macOS;
+   Firefox has its own certificate store). With a public domain (`tls = acme`, see
+   [Ports and TLS](#ports-and-tls)) there is nothing to import.
 2. Sign in with your Linux account and set up 2FA (QR code or key).
    **Save the recovery codes.**
 
