@@ -17,6 +17,13 @@ Three kinds of processes, so that permissions are right:
 
 ## Installing
 
+From the signed dnf repository (RHEL 9 and compatibles; packages and metadata are GPG-signed):
+
+    sudo curl -o /etc/yum.repos.d/techhack.repo https://repo.techhack.nl/techhack.repo
+    sudo dnf install cerberusttpd
+
+Or build it yourself:
+
     make rpm                              # builds rpmbuild/RPMS/x86_64/cerberusttpd-*.rpm
     sudo rpm -Uvh rpmbuild/RPMS/x86_64/cerberusttpd-*.rpm
     # or without an RPM: sudo make install

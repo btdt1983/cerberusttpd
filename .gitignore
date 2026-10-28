@@ -1,3 +1,4 @@
 /cerberusttpd
 /rpmbuild/
 *.rpm
+packaging/PUBLISHING.md
