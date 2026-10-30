@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"sync"
@@ -328,6 +329,12 @@ func (s *server) rootFor(u *user.User) string {
 	return u.HomeDir
 }
 
+// cacheFor is where u's thumbnails are cached: always the user's own home, whatever
+// the shared root is, so a read-only or shared root needs no special care.
+func cacheFor(u *user.User) string {
+	return filepath.Join(u.HomeDir, ".cache", "cerberusttpd", "thumbs")
+}
+
 // startWorker runs the file worker with cred and returns the network side of
 // its socket. Dropping the socket makes the worker exit.
 func (s *server) startWorker(u *user.User, cred *syscall.Credential) (*os.File, error) {
@@ -335,7 +342,7 @@ func (s *server) startWorker(u *user.User, cred *syscall.Credential) (*os.File, 
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(s.Exe, "worker", s.rootFor(u))
+	cmd := exec.Command(s.Exe, "worker", s.rootFor(u), cacheFor(u))
 	cmd.Dir = "/"
 	cmd.Env = []string{}
 	cmd.ExtraFiles = []*os.File{mine}

@@ -107,7 +107,7 @@ func (s *server) cleanupUser(u *user.User) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cleanupLimit)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, s.Exe, "cleanup", s.rootFor(u), strconv.Itoa(int(s.StaleAfter.Seconds())))
+	cmd := exec.CommandContext(ctx, s.Exe, "cleanup", s.rootFor(u), strconv.Itoa(int(s.StaleAfter.Seconds())), cacheFor(u))
 	cmd.Dir = "/"
 	cmd.Env = []string{}
 	cmd.Stderr = os.Stderr

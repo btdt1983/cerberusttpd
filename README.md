@@ -3,7 +3,7 @@
 A self-contained file server in Go: sign in with your Linux account (PAM) plus
 TOTP 2FA, HTTPS with its own local CA or an automatic Let's Encrypt certificate for your
 domain (`domain = files.example.com` is enough), HTTP/3, resumable downloads and uploads
-(tus), file management and a live sidebar with bandwidth, online users and server load.
+(tus), file management, photo albums with a masonry gallery and a live sidebar with bandwidth, online users and server load.
 
 ## How it works
 
@@ -45,6 +45,29 @@ Logs: `journalctl -u cerberusttpd -f`. Settings: `/etc/cerberusttpd/cerberusttpd
    [Ports and TLS](#ports-and-tls)) there is nothing to import.
 2. Sign in with your Linux account and set up 2FA (QR code or key).
    **Save the recovery codes.**
+
+## Photo albums
+
+A folder with pictures can be made into an album: open it and use *Make a photo album*
+(you need write access). From then on the folder opens as a masonry gallery with a
+lightbox (arrow keys, swipe, full screen picture, links to the original and a download).
+*Show as a list of files* on the album page gives the normal file list back.
+
+- *Edit album* (on the album page, for folders you can write to) sets the title, a description,
+  a caption per picture, the cover and the order: drag a row by its handle or use the arrows.
+  The cover is shown next to the folder in the file list; album folders get an "album" label.
+  *Remove album* deletes only the metadata file.
+- An album is just a folder plus a small hidden file, `.cerberusttpd-album.json`, with the
+  title, description, order and captions. The pictures are whatever images the folder
+  holds, so uploading, renaming and deleting work as always. Delete the file to undo it.
+- JPEG, PNG, GIF and WebP are shown. HEIC/HEIF and SVG are not (no safe decoder; SVG is
+  active content). Photos rotated by the camera (EXIF orientation) are shown upright.
+- Thumbnails and lightbox pictures are made by the worker, as the signed-in user, and cached in
+  `~/.cache/cerberusttpd/thumbs/` in that user's own home (so it works for a shared or read-only
+  `root`, and for administrators; it counts towards their quota; unused thumbnails are
+  removed after 60 days). If that directory cannot be created, pictures are made on the fly
+  for every request. Pictures over 100 MB or 60 megapixels are not decoded; a picture
+  that cannot be decoded shows its file name instead.
 
 ## Administration
 

@@ -78,6 +78,10 @@ func (s *Server) Handler(altSvc string) http.Handler {
 	})
 	mux.HandleFunc("GET /files/{path...}", s.files)
 	mux.HandleFunc("GET /api/stats", s.statsStream)
+	mux.HandleFunc("GET /thumb/{path...}", s.thumb)
+	mux.HandleFunc("POST /album/create", s.albumCreate)
+	mux.HandleFunc("GET /album/edit", s.albumEditPage)
+	mux.HandleFunc("POST /album/edit", s.albumEditDo)
 	mux.HandleFunc("POST /mkdir", s.mkdir)
 	mux.HandleFunc("GET /rename", s.editPage("rename"))
 	mux.HandleFunc("POST /rename", s.editDo("rename"))
@@ -242,7 +246,7 @@ func (s *Server) files(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, path.Base(r.URL.Path)+"/", http.StatusMovedPermanently)
 			return
 		}
-		s.listing(w, sess, rel)
+		s.listing(w, r, sess, rel)
 		return
 	}
 	if len(files) != 1 {
@@ -270,7 +274,7 @@ func risky(name string) bool {
 	return false
 }
 
-func (s *Server) listing(w http.ResponseWriter, sess *Session, rel string) {
+func (s *Server) listing(w http.ResponseWriter, r *http.Request, sess *Session, rel string) {
 	var resp worker.Response
 	if _, err := sess.worker.Call(worker.Request{Op: "list", Path: rel}, &resp); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -280,9 +284,27 @@ func (s *Server) listing(w http.ResponseWriter, sess *Session, rel string) {
 		s.fail(w, resp.Err)
 		return
 	}
+	// A folder with an album file opens as a gallery (?view=list shows the files).
+	hasAlbum, hasImages := false, false
+	for _, e := range resp.Entries {
+		if !e.Dir && e.Name == worker.AlbumFile {
+			hasAlbum = true
+		}
+		if !e.Dir && worker.IsImage(e.Name) {
+			hasImages = true
+		}
+	}
+	if hasAlbum && r.URL.Query().Get("view") != "list" {
+		var ar worker.Response
+		if _, err := sess.worker.Call(worker.Request{Op: "album", Path: rel}, &ar); err == nil && ar.Err == "" && ar.Album != nil {
+			s.album(w, sess, rel, ar)
+			return
+		}
+	}
 	type row struct {
 		Name, Href, Rename, Delete, Full, Icon, Download string
-		Dir                                              bool
+		Dir, Album                                       bool
+		Cover                                            string
 		Size                                             int64
 		MTime                                            time.Time
 	}
@@ -294,7 +316,10 @@ func (s *Server) listing(w http.ResponseWriter, sess *Session, rel string) {
 		}
 		full := path.Join(rel, e.Name)
 		rows = append(rows, row{Name: n, Href: rowHref(n), Rename: actionURL("rename", full), Delete: actionURL("delete", full), Full: full,
-			Icon: iconFor(e.Name, e.Dir), Download: rowHref(e.Name) + "?dl", Dir: e.Dir, Size: e.Size, MTime: time.Unix(0, e.MTime)})
+			Icon: iconFor(e.Name, e.Dir), Download: rowHref(e.Name) + "?dl", Dir: e.Dir, Size: e.Size, MTime: time.Unix(0, e.MTime), Album: e.Album})
+		if e.Cover != "" {
+			rows[len(rows)-1].Cover = fileURL("/thumb/", path.Join(full, e.Cover)) + "?s=t"
+		}
 	}
 	cur := "/" + strings.Trim(rel, "/")
 	if cur != "/" {
@@ -304,7 +329,8 @@ func (s *Server) listing(w http.ResponseWriter, sess *Session, rel string) {
 	if rel != "" {
 		title = path.Base(rel)
 	}
-	s.render(w, http.StatusOK, "browse", map[string]any{"Title": title, "Crumbs": crumbs(rel), "User": sess.User, "Admin": sess.Admin, "Path": cur, "Rows": rows, "Root": rel == "", "Cut": resp.Cut, "Writable": resp.Writable, "Dir": strings.Trim(rel, "/")})
+	s.render(w, http.StatusOK, "browse", map[string]any{"Title": title, "Crumbs": crumbs(rel), "User": sess.User, "Admin": sess.Admin, "Path": cur, "Rows": rows, "Root": rel == "", "Cut": resp.Cut, "Writable": resp.Writable, "Dir": strings.Trim(rel, "/"),
+		"HasAlbum": hasAlbum, "CanAlbum": hasImages && !hasAlbum && resp.Writable, "AlbumTitle": title})
 }
 
 // fail answers an HTML page request with a readable error page.

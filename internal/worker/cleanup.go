@@ -16,7 +16,7 @@ import (
 // Cleanup removes abandoned uploads under rootDir that have not been written to
 // for maxAge. It runs with the user's own credentials, so only what that user
 // may delete is deleted. It stays on one filesystem and follows no symlinks.
-func Cleanup(rootDir string, maxAge time.Duration) error {
+func Cleanup(rootDir, cacheDir string, maxAge time.Duration) error {
 	syscall.RawSyscall(syscall.SYS_PRCTL, 38 /* PR_SET_NO_NEW_PRIVS */, 1, 0)
 	root, err := os.OpenRoot(rootDir)
 	if err != nil {
@@ -89,7 +89,41 @@ func Cleanup(rootDir string, maxAge time.Duration) error {
 	if removed > 0 {
 		log.Printf("cleanup: removed %d abandoned upload file(s) under %s", removed, rootDir)
 	}
+	pruneThumbs(cacheDir)
 	return nil
+}
+
+// thumbMaxAge: thumbnails are only a cache. Ones nobody asked for in this long
+// are dropped (they are made again when needed); ones in use are not touched.
+const thumbMaxAge = 60 * 24 * time.Hour
+
+func pruneThumbs(cacheDir string) {
+	root, err := os.OpenRoot(cacheDir)
+	if err != nil {
+		return
+	}
+	defer root.Close()
+	d, err := root.Open(".")
+	if err != nil {
+		return
+	}
+	defer d.Close()
+	ents, _ := d.ReadDir(-1)
+	removed := 0
+	for _, e := range ents {
+		fi, err := e.Info()
+		if err != nil || !fi.Mode().IsRegular() {
+			continue
+		}
+		age := time.Since(fi.ModTime())
+		stale := strings.HasPrefix(e.Name(), ".tmp-") && age > time.Hour
+		if (stale || age > thumbMaxAge) && root.Remove(e.Name()) == nil {
+			removed++
+		}
+	}
+	if removed > 0 {
+		log.Printf("cleanup: removed %d old thumbnail(s)", removed)
+	}
 }
 
 func devOf(fi fs.FileInfo) uint64 {
