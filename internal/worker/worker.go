@@ -31,8 +31,9 @@ type Request struct {
 	ID        string `json:"id,omitempty"`
 	Offset    int64  `json:"offset,omitempty"`
 	Recursive bool   `json:"recursive,omitempty"`
-	Variant   string `json:"variant,omitempty"` // thumb: t (grid) or v (lightbox)
-	Album     *Album `json:"album,omitempty"`   // album_save, album_create
+	Variant   string `json:"variant,omitempty"`   // thumb: t (grid) or v (lightbox)
+	Album     *Album `json:"album,omitempty"`     // album_save, album_create
+	NoAlbums  bool   `json:"no_albums,omitempty"` // list: skip the per-folder album lookups
 }
 
 type Entry struct {
@@ -88,7 +89,7 @@ func Run(rootDir, cacheDir string) error {
 		case "open":
 			return open(root, name)
 		case "list":
-			return list(root, name), nil
+			return list(root, name, !req.NoAlbums), nil
 		case "statfs":
 			return fsInfo(root), nil
 		case "stat":
@@ -147,7 +148,7 @@ func open(root *os.Root, name string) (any, []*os.File) {
 	return Response{Err: "invalid"}, nil
 }
 
-func list(root *os.Root, name string) Response {
+func list(root *os.Root, name string, albumInfo bool) Response {
 	d, err := root.Open(name)
 	if err != nil {
 		return Response{Err: errCode(err)}
@@ -175,7 +176,7 @@ func list(root *os.Root, name string) Response {
 			en.Size, en.MTime = fi.Size(), fi.ModTime().UnixNano()
 			en.Dir = fi.IsDir()
 		}
-		if en.Dir {
+		if en.Dir && albumInfo {
 			// One stat per folder; only the first few covers are read (small JSON files).
 			if _, err := root.Lstat(path.Join(name, e.Name(), albumFile)); err == nil {
 				en.Album = true

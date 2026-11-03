@@ -61,3 +61,39 @@ func TestConfigErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestAlbumsSetting(t *testing.T) {
+	check := func(conf string) error {
+		var o options
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		o.register(fs)
+		if conf != "" {
+			if err := applyConfig(fs, write(t, conf)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return o.resolve(fs)
+	}
+	if err := check(""); err != nil {
+		t.Errorf("default: %v", err)
+	}
+	if err := check("albums = off\n"); err != nil {
+		t.Errorf("off: %v", err)
+	}
+	if err := check("albums = maybe\n"); err == nil {
+		t.Error("albums = maybe accepted")
+	}
+	var o options
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	o.register(fs)
+	fs.Parse([]string{"-albums", "off"})
+	found := false
+	for i, a := range o.args() {
+		if a == "-albums" && o.args()[i+1] == "off" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("albums is not passed on to the network process")
+	}
+}

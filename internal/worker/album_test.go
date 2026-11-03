@@ -424,7 +424,7 @@ func TestListMarksAlbumsAndCovers(t *testing.T) {
 		t.Fatal(r)
 	}
 	got := map[string]Entry{}
-	for _, e := range list(root, ".").Entries {
+	for _, e := range list(root, ".", true).Entries {
 		got[e.Name] = e
 	}
 	if got["plain"].Album || !got["withcover"].Album || !got["nocover"].Album {
@@ -436,7 +436,7 @@ func TestListMarksAlbumsAndCovers(t *testing.T) {
 	// Once the picture exists it is passed on; deleted again, it is dropped.
 	writeJPEG(t, filepath.Join(dir, "withcover"), "x.jpg", 10, 10, 1)
 	found := func() string {
-		for _, e := range list(root, ".").Entries {
+		for _, e := range list(root, ".", true).Entries {
 			if e.Name == "withcover" {
 				return e.Cover
 			}
@@ -450,9 +450,15 @@ func TestListMarksAlbumsAndCovers(t *testing.T) {
 	if found() != "" {
 		t.Errorf("deleted cover still passed on: %q", found())
 	}
+	// With albums switched off the folder lookups are skipped altogether.
+	for _, e := range list(root, ".", false).Entries {
+		if e.Album || e.Cover != "" {
+			t.Errorf("album info with lookups off: %+v", e)
+		}
+	}
 	// A cover name that is not a plain file name is never passed on.
 	os.WriteFile(filepath.Join(dir, "plain", albumFile), []byte(`{"title":"t","cover":"../../etc/passwd"}`), 0o644)
-	for _, e := range list(root, ".").Entries {
+	for _, e := range list(root, ".", true).Entries {
 		if e.Name == "plain" && e.Cover != "" {
 			t.Errorf("hostile cover passed on: %q", e.Cover)
 		}

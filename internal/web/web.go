@@ -38,6 +38,7 @@ type Server struct {
 	doneOnce  sync.Once
 	CAPEM     []byte // public root certificate, served for trust setup
 	MaxUpload int64  // bytes; 0 means unlimited
+	Albums    bool   // photo albums: gallery, editor and thumbnails
 	tpl       *template.Template
 }
 
@@ -78,10 +79,12 @@ func (s *Server) Handler(altSvc string) http.Handler {
 	})
 	mux.HandleFunc("GET /files/{path...}", s.files)
 	mux.HandleFunc("GET /api/stats", s.statsStream)
-	mux.HandleFunc("GET /thumb/{path...}", s.thumb)
-	mux.HandleFunc("POST /album/create", s.albumCreate)
-	mux.HandleFunc("GET /album/edit", s.albumEditPage)
-	mux.HandleFunc("POST /album/edit", s.albumEditDo)
+	if s.Albums {
+		mux.HandleFunc("GET /thumb/{path...}", s.thumb)
+		mux.HandleFunc("POST /album/create", s.albumCreate)
+		mux.HandleFunc("GET /album/edit", s.albumEditPage)
+		mux.HandleFunc("POST /album/edit", s.albumEditDo)
+	}
 	mux.HandleFunc("POST /mkdir", s.mkdir)
 	mux.HandleFunc("GET /rename", s.editPage("rename"))
 	mux.HandleFunc("POST /rename", s.editDo("rename"))
@@ -276,7 +279,7 @@ func risky(name string) bool {
 
 func (s *Server) listing(w http.ResponseWriter, r *http.Request, sess *Session, rel string) {
 	var resp worker.Response
-	if _, err := sess.worker.Call(worker.Request{Op: "list", Path: rel}, &resp); err != nil {
+	if _, err := sess.worker.Call(worker.Request{Op: "list", Path: rel, NoAlbums: !s.Albums}, &resp); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -287,10 +290,10 @@ func (s *Server) listing(w http.ResponseWriter, r *http.Request, sess *Session, 
 	// A folder with an album file opens as a gallery (?view=list shows the files).
 	hasAlbum, hasImages := false, false
 	for _, e := range resp.Entries {
-		if !e.Dir && e.Name == worker.AlbumFile {
+		if s.Albums && !e.Dir && e.Name == worker.AlbumFile {
 			hasAlbum = true
 		}
-		if !e.Dir && worker.IsImage(e.Name) {
+		if s.Albums && !e.Dir && worker.IsImage(e.Name) {
 			hasImages = true
 		}
 	}
@@ -316,8 +319,8 @@ func (s *Server) listing(w http.ResponseWriter, r *http.Request, sess *Session, 
 		}
 		full := path.Join(rel, e.Name)
 		rows = append(rows, row{Name: n, Href: rowHref(n), Rename: actionURL("rename", full), Delete: actionURL("delete", full), Full: full,
-			Icon: iconFor(e.Name, e.Dir), Download: rowHref(e.Name) + "?dl", Dir: e.Dir, Size: e.Size, MTime: time.Unix(0, e.MTime), Album: e.Album})
-		if e.Cover != "" {
+			Icon: iconFor(e.Name, e.Dir), Download: rowHref(e.Name) + "?dl", Dir: e.Dir, Size: e.Size, MTime: time.Unix(0, e.MTime), Album: s.Albums && e.Album})
+		if s.Albums && e.Cover != "" {
 			rows[len(rows)-1].Cover = fileURL("/thumb/", path.Join(full, e.Cover)) + "?s=t"
 		}
 	}

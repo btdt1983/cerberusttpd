@@ -5,6 +5,8 @@ package web
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -154,5 +156,26 @@ func TestAlbumEditEscapes(t *testing.T) {
 	}
 	if strings.Contains(b.String(), "<script>alert(1)") {
 		t.Fatal("edit form was not escaped")
+	}
+}
+
+// With albums off the album and thumbnail routes do not exist at all; with
+// them on the same requests reach a handler (here: the login redirect).
+func TestAlbumRoutesFollowTheSwitch(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		s := New(nil)
+		s.Albums = on
+		h := s.Handler("")
+		for _, c := range []struct{ method, url string }{
+			{"GET", "/thumb/x.jpg"}, {"GET", "/album/edit?dir=x"},
+		} {
+			req := httptest.NewRequest(c.method, c.url, nil)
+			req.Header.Set("Sec-Fetch-Site", "same-origin")
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if got, want := rec.Code == http.StatusNotFound, !on; got != want {
+				t.Errorf("albums=%v %s %s: status %d", on, c.method, c.url, rec.Code)
+			}
+		}
 	}
 }

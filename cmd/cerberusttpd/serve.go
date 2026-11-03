@@ -51,6 +51,7 @@ func serveMain(args []string) error {
 	}
 	w := web.New(hc)
 	w.MaxUpload = o.maxUpload
+	w.Albums = o.albums != "off"
 	tcp, udp = w.CountListener(tcp), w.CountPacketConn(udp)
 
 	var tlsConf *tls.Config

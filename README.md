@@ -48,6 +48,9 @@ Logs: `journalctl -u cerberusttpd -f`. Settings: `/etc/cerberusttpd/cerberusttpd
 
 ## Photo albums
 
+Albums are on by default. Set `albums = off` in the settings file to switch them off completely:
+no album or thumbnail pages, no *Make a photo album* button, and folders stay plain file lists.
+
 A folder with pictures can be made into an album: open it and use *Make a photo album*
 (you need write access). From then on the folder opens as a masonry gallery with a
 lightbox (arrow keys, swipe, full screen picture, links to the original and a download).

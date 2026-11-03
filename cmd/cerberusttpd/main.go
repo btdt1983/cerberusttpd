@@ -51,7 +51,7 @@ var version = "dev"
 
 type options struct {
 	addr, root, data, mode, names, domains, email, svcUser, pamService, twoFA, config string
-	dnsProvider, dnsCreds, acmeCA, acmeHTTP                                           string
+	dnsProvider, dnsCreds, acmeCA, acmeHTTP, albums                                   string
 
 	minUID     uint
 	maxUpload  int64
@@ -74,6 +74,7 @@ func (o *options) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.svcUser, "user", "cerberusttpd", "unprivileged user for the network process")
 	fs.StringVar(&o.pamService, "pam-service", "cerberusttpd", "PAM service name (/etc/pam.d/<name>)")
 	fs.StringVar(&o.twoFA, "2fa", "required", "two-factor login: required (everyone enrols a TOTP app) or off")
+	fs.StringVar(&o.albums, "albums", "on", "photo albums (masonry gallery, lightbox, album editor, thumbnails): on or off")
 	fs.Int64Var(&o.maxUpload, "max-upload", 20<<30, "largest allowed upload in bytes (0 = unlimited)")
 	fs.DurationVar(&o.staleAfter, "stale-after", 7*24*time.Hour, "remove abandoned uploads untouched for this long (0 = never)")
 	fs.UintVar(&o.minUID, "min-uid", 1000, "lowest uid allowed to log in")
@@ -85,7 +86,7 @@ func (o *options) args() []string {
 		"-names", o.names, "-domain", o.domains, "-acme-email", o.email,
 		"-dns-provider", o.dnsProvider, "-acme-ca", o.acmeCA, "-acme-http-addr", o.acmeHTTP,
 		"-user", o.svcUser, "-pam-service", o.pamService, "-min-uid", fmt.Sprint(o.minUID),
-		"-2fa", o.twoFA, "-max-upload", fmt.Sprint(o.maxUpload), "-stale-after", o.staleAfter.String(),
+		"-2fa", o.twoFA, "-albums", o.albums, "-max-upload", fmt.Sprint(o.maxUpload), "-stale-after", o.staleAfter.String(),
 	}
 }
 
@@ -100,6 +101,9 @@ func (o *options) resolve(fs *flag.FlagSet) error {
 	}
 	if o.domains != "" && o.mode != "acme" {
 		return fmt.Errorf("domain needs tls = acme (it is %q)", o.mode)
+	}
+	if o.albums != "on" && o.albums != "off" {
+		return fmt.Errorf("albums must be on or off (it is %q)", o.albums)
 	}
 	if o.acmeHTTP != "" && o.dnsProvider != "" {
 		return errors.New("acme-http-addr and dns-provider are alternatives: set only one")
