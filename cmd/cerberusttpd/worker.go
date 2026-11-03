@@ -5,6 +5,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"strconv"
 	"time"
 
@@ -12,10 +13,17 @@ import (
 )
 
 func workerMain(args []string) error {
-	if len(args) != 2 {
-		return errors.New("usage: worker <root> <cache dir>")
+	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
+	scan := fs.String("scan", "", "virus scanner command for finished uploads")
+	timeout := fs.Duration("scan-timeout", 5*time.Minute, "give up on a scan after this long")
+	if err := fs.Parse(args); err != nil || fs.NArg() != 2 {
+		return errors.New("usage: worker [-scan cmd] [-scan-timeout d] <root> <cache dir>")
 	}
-	return worker.Run(args[0], args[1])
+	sc, err := worker.ParseScan(*scan, *timeout)
+	if err != nil {
+		return err
+	}
+	return worker.Run(fs.Arg(0), fs.Arg(1), sc)
 }
 
 func cleanupMain(args []string) error {

@@ -16,14 +16,33 @@ var mu sync.Mutex
 
 var ErrDenied = errors.New("authentication failed")
 
+// converse answers PAM's questions. Modules like pam_sss send plain messages
+// ("Authenticated with cached credentials", password expiry warnings) that need
+// no answer and must not fail the login. The first hidden prompt gets the
+// password. Anything else that asks for input (a forced password change, a
+// one-time code) cannot be answered on a web form, so it fails.
+func converse(password *string) func(pam.Style, string) (string, error) {
+	answered := password == nil // no password: every prompt is refused
+	return func(s pam.Style, msg string) (string, error) {
+		switch s {
+		case pam.TextInfo, pam.ErrorMsg:
+			return "", nil
+		case pam.PromptEchoOff:
+			if !answered {
+				answered = true
+				return *password, nil
+			}
+		}
+		return "", errors.New("unsupported PAM prompt")
+	}
+}
+
 // Account runs account management only (expired accounts, faillock), for a
 // user who was authenticated elsewhere, for example by single sign-on.
 func Account(service, user, rhost string) error {
 	mu.Lock()
 	defer mu.Unlock()
-	t, err := pam.StartFunc(service, user, func(pam.Style, string) (string, error) {
-		return "", errors.New("unsupported PAM prompt")
-	})
+	t, err := pam.StartFunc(service, user, converse(nil))
 	if err != nil {
 		return err
 	}
@@ -43,12 +62,7 @@ func Account(service, user, rhost string) error {
 func Check(service, user, password, rhost string) error {
 	mu.Lock()
 	defer mu.Unlock()
-	t, err := pam.StartFunc(service, user, func(s pam.Style, msg string) (string, error) {
-		if s == pam.PromptEchoOff {
-			return password, nil
-		}
-		return "", errors.New("unsupported PAM prompt")
-	})
+	t, err := pam.StartFunc(service, user, converse(&password))
 	if err != nil {
 		return err
 	}

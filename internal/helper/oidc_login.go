@@ -66,6 +66,10 @@ func (s *server) oidcLogin(req Request) (Response, []*os.File) {
 	}
 	s.limit.Success(host, "oidc")
 	resp, files := s.complete(u, host)
+	if resp.Err == "nohome" {
+		resp.IdP = idp
+		return resp, nil
+	}
 	resp.IdP = idp
 	return resp, files
 }

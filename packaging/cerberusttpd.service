@@ -36,7 +36,7 @@ SystemCallArchitectures=native
 # Allow-list of syscalls instead of killing on a miss: the error is ENOSYS so
 # Go falls back by itself on syscalls newer than systemd knows (fchmodat2 is in
 # no group on EL9's systemd 252; with the default action the worker gets SIGSYS).
-SystemCallFilter=@system-service @setuid @chown
+SystemCallFilter=@system-service @setuid @chown quotactl
 SystemCallFilter=~@resources
 SystemCallErrorNumber=ENOSYS
 

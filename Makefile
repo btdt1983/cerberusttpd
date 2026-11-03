@@ -25,6 +25,7 @@ stage:
 	install -m 644 packaging/cerberusttpd.service $(DESTDIR)/usr/lib/systemd/system/cerberusttpd.service
 	install -m 644 packaging/firewalld/cerberusttpd.xml $(DESTDIR)/usr/lib/firewalld/services/cerberusttpd.xml
 	install -m 644 README.md $(DESTDIR)/usr/share/doc/cerberusttpd/README.md
+	install -m 644 packaging/pam.d/cerberusttpd.sssd.example $(DESTDIR)/usr/share/doc/cerberusttpd/cerberusttpd.sssd.example
 	install -m 644 LICENSE $(DESTDIR)/usr/share/licenses/cerberusttpd/LICENSE
 
 # Install on this machine (the RPM does the same through its scriptlets).

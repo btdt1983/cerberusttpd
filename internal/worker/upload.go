@@ -143,6 +143,9 @@ func openPart(root *os.Root, dir string, req Request, m meta) (any, []*os.File) 
 	return Response{ID: req.ID, Offset: st.Size, Length: m.Length}, []*os.File{f}
 }
 
+// scanRoot is the shared folder as a path, for the virus scanner (set by Run).
+var scanRoot string
+
 func finish(root *os.Root, dir, id string, m meta) Response {
 	part := partName(dir, id)
 	fi, err := root.Lstat(part)
@@ -151,6 +154,15 @@ func finish(root *os.Root, dir, id string, m meta) Response {
 	}
 	if fi.Size() != m.Length {
 		return Response{Err: "conflict", Offset: fi.Size(), Length: m.Length}
+	}
+	if m.Length > 0 {
+		if refusal, ok := scanPart(scanRoot, part); !ok {
+			// Nothing of a refused upload stays behind.
+			root.Remove(part)
+			root.Remove(metaName(dir, id))
+			refusal.Name = m.Name
+			return refusal
+		}
 	}
 	if err := root.Chmod(part, 0o644); err != nil {
 		return Response{Err: errCode(err)}

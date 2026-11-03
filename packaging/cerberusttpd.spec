@@ -55,4 +55,5 @@ install -d -m 700 /var/lib/cerberusttpd
 %{_unitdir}/cerberusttpd.service
 /usr/lib/firewalld/services/cerberusttpd.xml
 %doc %{_docdir}/cerberusttpd/README.md
+%doc %{_docdir}/cerberusttpd/cerberusttpd.sssd.example
 %license %{_licensedir}/cerberusttpd/LICENSE

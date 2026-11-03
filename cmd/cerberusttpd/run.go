@@ -24,6 +24,7 @@ import (
 	"github.com/btdt1983/cerberusttpd/internal/ipc"
 	"github.com/btdt1983/cerberusttpd/internal/localca"
 	"github.com/btdt1983/cerberusttpd/internal/mfa"
+	"github.com/btdt1983/cerberusttpd/internal/worker"
 )
 
 func init() {
@@ -81,6 +82,10 @@ func runMain(args []string) error {
 
 	cfg := helper.Config{Exe: exe, PAMService: o.pamService, MinUID: uint32(o.minUID), Root: o.root,
 		DataDir: o.data, StaleAfter: o.staleAfter}
+	if _, err := worker.ParseScan(o.scanCommand, o.scanTimeout); err != nil {
+		return err
+	}
+	cfg.Scan, cfg.ScanTimeout = o.scanCommand, o.scanTimeout
 	if o.oidcEnabled() {
 		if cfg.OIDC, err = o.loadOIDC(); err != nil {
 			return err

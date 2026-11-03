@@ -17,7 +17,6 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"sync"
 	"syscall"
@@ -31,8 +30,6 @@ import (
 	"github.com/btdt1983/cerberusttpd/internal/totp"
 )
 
-var userRE = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-
 const (
 	maxPassword = 512
 	failFloor   = 3 * time.Second // failed logins all take this long (PAM adds ~2s only for real accounts)
@@ -42,15 +39,17 @@ const (
 )
 
 type Config struct {
-	Exe        string // path to this binary, for starting workers
-	PAMService string
-	MinUID     uint32
-	Root       string // shared root for all users; empty means each user's home
-	CA         *localca.CA
-	MFA        *mfa.Store // nil disables 2FA
-	DataDir    string
-	StaleAfter time.Duration // abandoned uploads older than this are removed
-	OIDC       *OIDC         // single sign-on; nil disables it
+	Exe         string // path to this binary, for starting workers
+	PAMService  string
+	MinUID      uint32
+	Root        string // shared root for all users; empty means each user's home
+	CA          *localca.CA
+	MFA         *mfa.Store // nil disables 2FA
+	DataDir     string
+	StaleAfter  time.Duration // abandoned uploads older than this are removed
+	OIDC        *OIDC         // single sign-on; nil disables it
+	Scan        string        // virus scanner command for finished uploads; empty = none
+	ScanTimeout time.Duration
 }
 
 type Request struct {
@@ -154,21 +153,24 @@ func (s *server) login(req Request) (Response, []*os.File) {
 		return Response{Err: code}, nil
 	}
 	host := hostOnly(req.RHost)
-	if ok, _ := s.limit.Allow(host, req.User); !ok {
+	if ok, _ := s.limit.Allow(host, limiterKey(req.User)); !ok {
 		return fail("throttled")
 	}
 	u, ok := s.eligible(req)
 	if !ok {
-		s.limit.Fail(host, req.User)
+		s.limit.Fail(host, limiterKey(req.User))
 		return fail("denied")
 	}
 	if err := pamauth.Check(s.PAMService, u.Username, req.Password, host); err != nil {
 		log.Printf("helper: login failed user=%q rhost=%s", u.Username, host)
-		s.limit.Fail(host, req.User)
+		s.limit.Fail(host, limiterKey(req.User))
 		return fail("denied")
 	}
+	if !s.homeOK(u) { // say so now, before asking for a second factor
+		return Response{Err: "nohome", User: u.Username}, nil
+	}
 	if s.MFA == nil {
-		s.limit.Success(host, req.User)
+		s.limit.Success(host, limiterKey(req.User))
 		return s.complete(u, host)
 	}
 	// Password is right; the worker is only started after the second factor.
@@ -229,7 +231,7 @@ func (s *server) mfaVerify(req Request) (Response, []*os.File) {
 		return Response{Err: "expired"}, nil
 	}
 	name := p.user.Username
-	if ok, _ := s.limit.Allow(p.rhost, name); !ok {
+	if ok, _ := s.limit.Allow(p.rhost, limiterKey(name)); !ok {
 		s.dropPending(req.Pending)
 		return Response{Err: "throttled"}, nil
 	}
@@ -255,7 +257,7 @@ func (s *server) mfaVerify(req Request) (Response, []*os.File) {
 	}
 	if !good {
 		log.Printf("helper: 2fa failed user=%q rhost=%s", name, p.rhost)
-		s.limit.Fail(p.rhost, name)
+		s.limit.Fail(p.rhost, limiterKey(name))
 		s.mu.Lock()
 		p.fails++
 		tooMany := p.fails >= maxMFAFails
@@ -267,7 +269,7 @@ func (s *server) mfaVerify(req Request) (Response, []*os.File) {
 		return Response{Err: "denied"}, nil
 	}
 	s.dropPending(req.Pending)
-	s.limit.Success(p.rhost, name)
+	s.limit.Success(p.rhost, limiterKey(name))
 	resp, files := s.complete(p.user, p.rhost)
 	resp.Recovery = recovery
 	return resp, files
@@ -275,6 +277,9 @@ func (s *server) mfaVerify(req Request) (Response, []*os.File) {
 
 // complete starts the user's worker and reports who logged in.
 func (s *server) complete(u *user.User, host string) (Response, []*os.File) {
+	if !s.homeOK(u) {
+		return Response{Err: "nohome", User: u.Username}, nil
+	}
 	cred, admin, err := credFor(u)
 	if err != nil {
 		log.Printf("helper: credentials for %q: %v", u.Username, err)
@@ -290,6 +295,21 @@ func (s *server) complete(u *user.User, host string) (Response, []*os.File) {
 	return Response{OK: true, User: u.Username, UID: cred.Uid, Admin: admin}, []*os.File{sock}
 }
 
+// homeOK reports whether the folder the user would see exists. Signing in
+// does not open a PAM session, so an account that has never logged in on the
+// console or over SSH (typical for Active Directory users) has no home yet;
+// the worker would exit at once and the browser would bounce back to the
+// sign-in page with no explanation.
+func (s *server) homeOK(u *user.User) bool {
+	root := s.rootFor(u)
+	fi, err := os.Stat(root)
+	if err != nil || !fi.IsDir() {
+		log.Printf("helper: no folder for %q: %s does not exist or is not a directory", u.Username, root)
+		return false
+	}
+	return true
+}
+
 // eligible validates the name shape and refuses root and system accounts.
 func (s *server) eligible(req Request) (*user.User, bool) {
 	if req.Password == "" || len(req.Password) > maxPassword {
@@ -300,7 +320,7 @@ func (s *server) eligible(req Request) (*user.User, bool) {
 
 // eligibleName is the part of eligible that does not involve a password.
 func (s *server) eligibleName(name string) (*user.User, bool) {
-	if !userRE.MatchString(name) {
+	if !ValidUser(name) {
 		return nil, false
 	}
 	u, err := user.Lookup(name)
@@ -366,7 +386,11 @@ func (s *server) startWorker(u *user.User, cred *syscall.Credential) (*os.File, 
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(s.Exe, "worker", s.rootFor(u), cacheFor(u))
+	args := []string{"worker"}
+	if s.Scan != "" {
+		args = append(args, "-scan", s.Scan, "-scan-timeout", s.ScanTimeout.String())
+	}
+	cmd := exec.Command(s.Exe, append(args, s.rootFor(u), cacheFor(u))...)
 	cmd.Dir = "/"
 	cmd.Env = []string{}
 	cmd.ExtraFiles = []*os.File{mine}

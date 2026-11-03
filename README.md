@@ -215,6 +215,89 @@ thumbnails and the live sidebar. Values are quoted, so a file name with a newlin
 forge a line. Passwords, codes and session tokens never appear. The journal is the place to
 keep it safe: forward it to a log server if the host itself is not trusted.
 
+## Virus scanning of uploads
+
+Optional. Set `scan-command` and every finished upload is scanned before it gets its real
+name. A file the scanner flags is deleted and the uploader sees *"file rejected: the virus
+scanner found something in it"*. If the scan itself fails (scanner missing, crashed, or
+slower than `scan-timeout`, default 5 minutes) the upload is refused too, so a broken
+scanner never lets files through unchecked. Both cases are in the audit log
+(`event=upload result=infected signature=<name>` or `result=scanfail`).
+
+    scan-command = /usr/bin/clamdscan --fdpass --no-summary
+    #scan-timeout = 5m
+
+The command is an absolute path followed by fixed arguments (split on spaces, no shell, no
+quoting); the file's path is added as the last argument. It runs as the user who uploads, with
+an almost empty environment, and follows the `clamscan` exit codes: **0 clean, 1 infected,
+anything else is a failure**. Any scanner that behaves like that works.
+
+> **Status: tested with stand-in scanners under the packaged systemd unit (clean, infected,
+> failing, hanging); not yet verified with a real ClamAV.** With ClamAV, check these:
+> - `--fdpass` is needed: home directories are 0700 and `clamd` runs as its own user. (On EL:
+>   `dnf install clamav clamd` from EPEL, `systemctl enable --now clamd@scan`.)
+> - Files larger than clamd's `MaxFileSize`/`MaxScanSize` are passed as clean unless you set
+>   `AlertExceedsMax yes`.
+> - SELinux may block `clamdscan` from reading files: look for AVC messages and the
+>   `antivirus_can_scan_system` boolean.
+
+This is a check at upload time, not a guarantee: the owner can still change a file afterwards,
+and files that reach the folder in other ways (SSH, Samba) are not scanned. Empty files are
+not scanned.
+
+## Disk quota
+
+If Linux user quotas are switched on for the filesystem (ext4 `usrquota` or XFS `uquota`), the
+sidebar shows the quota instead of the whole disk: *"3.0 MiB left of 8.0 MiB"*, and an upload that
+runs into the limit stops with *"no space left or quota exceeded"* and leaves nothing behind.
+Without quotas nothing changes and the sidebar shows the free space of the disk. Only user quotas
+are shown (not group or project quotas); the smaller of the free disk space and the quota left is
+used. Verified with an XFS filesystem with a user quota (`uquota`) under the packaged unit; ext4
+(`usrquota`) uses the same kernel call and is expected to work but was not tried. The unit lists
+`quotactl` in its system call filter for this: without it the quota simply does not appear, so
+after upgrading from an older package make sure the new unit is in use.
+
+## Active Directory and LDAP (through sssd)
+
+Sign-in goes through PAM, so any directory your Linux server is joined to works: Active
+Directory, FreeIPA or plain LDAP, using sssd. cerberusttpd knows nothing about the directory
+itself; file permissions are the ordinary Linux permissions of the directory users and groups.
+
+> **Status: new and not yet verified against a real Active Directory.** The name rules, the
+> PAM handling and the missing-home check are tested on a local system; the sssd side follows
+> the documented behaviour of `realm`, `authselect` and `pam_sss`. Please report what you find.
+
+1. **Join the server** (once, as root; see your distribution's documentation):
+
+        dnf install realmd sssd adcli oddjob-mkhomedir
+        realm join --user=Administrator corp.example.com
+        authselect select sssd with-faillock with-mkhomedir --force
+
+   `id jan.jansen@corp.example.com` must now show the user and their groups.
+2. **PAM.** The packaged `/etc/pam.d/cerberusttpd` checks local accounts only. Replace it with
+   the example that follows the system stack (`password-auth`, which `authselect` now builds
+   with `pam_sss`):
+
+        cp /usr/share/doc/cerberusttpd/cerberusttpd.sssd.example /etc/pam.d/cerberusttpd
+
+3. **Names.** `realm join` makes sssd use fully qualified names, so people sign in as
+   `jan.jansen@corp.example.com`. For short names (`jan.jansen`) set
+   `use_fully_qualified_names = False` in `/etc/sssd/sssd.conf` (only sensible with one domain)
+   and restart sssd. Letters of either case, digits and `. _ @ -` are accepted; a
+   `DOMAIN\user` form, machine accounts (`PC01$`) and all-digit names are not. If the directory
+   ignores case, `Jan.Jansen` and `jan.jansen` count as one person for the attempt limits.
+4. **Home directories.** Signing in on the web does not open a PAM session, so nothing
+   creates a home directory (`pam_oddjob_mkhomedir` only runs for SSH or console logins).
+   Someone who has never logged in that way sees *"Your account has no folder on this server
+   yet"* (`result=nohome` in the audit log). Either let them log in once over SSH, create the
+   folders yourself (`mkhomedir_helper <user>`), or give everyone a shared folder with
+   `root = /srv/files` (permissions then decide who may do what).
+5. **Limits.** Administrators (who see the admin marks in the sidebar) are members of the local
+   `wheel` group only, not a directory group. Passwords that must be changed at the next login
+   are refused (a web form cannot do the change); change them elsewhere first. There is no
+   Kerberos/Windows pass-through sign-in; combine with the Microsoft sign-in above if you want
+   single sign-on. Locked or expired directory accounts are refused by PAM.
+
 ## Administration
 
 - Reset a user's 2FA: `sudo /opt/cerberusttpd/cerberusttpd 2fa-reset -config /etc/cerberusttpd/cerberusttpd.conf <user>`

@@ -122,7 +122,7 @@ const pages = `
 <section class="card side"><h3>Server</h3>
 <div class="meter"><div class="mrow"><span>Processor</span><b id="m-cpu">–</b></div><progress id="p-cpu" max="100" value="0" aria-labelledby="m-cpu"></progress></div>
 <div class="meter"><div class="mrow"><span>Memory</span><b id="m-mem">–</b></div><progress id="p-mem" max="100" value="0" aria-labelledby="m-mem"></progress></div>
-<div class="meter"><div class="mrow"><span>Disk (free for you)</span><b id="m-disk">–</b></div><progress id="p-disk" max="100" value="0" aria-labelledby="m-disk"></progress></div>
+<div class="meter"><div class="mrow"><span>Disk (space for you)</span><b id="m-disk">–</b></div><progress id="p-disk" max="100" value="0" aria-labelledby="m-disk"></progress></div>
 <dl class="facts"><dt>Load</dt><dd id="f-load">–</dd><dt>Uptime</dt><dd id="f-up">–</dd><dt>Transfers</dt><dd id="f-tr">–</dd></dl>
 </section>
 </aside></div>{{if .Writable}}<script src="/static/upload.js"></script><script src="/static/select.js"></script>{{end}}<script src="/static/filter.js"></script><script src="/static/sidebar.js"></script></body></html>{{end}}

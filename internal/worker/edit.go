@@ -91,5 +91,13 @@ func fsInfo(root *os.Root) Response {
 	if err := unix.Fstatfs(int(f.Fd()), &st); err != nil {
 		return Response{Err: "internal"}
 	}
-	return Response{Total: int64(st.Blocks) * int64(st.Bsize), Avail: int64(st.Bavail) * int64(st.Bsize)}
+	resp := Response{Total: int64(st.Blocks) * int64(st.Bsize), Avail: int64(st.Bavail) * int64(st.Bsize)}
+	if used, limit, ok := userQuota(f, os.Getuid()); ok && limit > 0 {
+		resp.QuotaUsed, resp.QuotaLimit = used, limit
+		// What this user can still write is the smaller of the two.
+		if left := max(limit-used, 0); left < resp.Avail {
+			resp.Avail = left
+		}
+	}
+	return resp
 }

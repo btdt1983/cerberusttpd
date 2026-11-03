@@ -1,0 +1,12 @@
+#%PAM-1.0
+# Example for a server joined to Active Directory (or LDAP/FreeIPA) with sssd.
+# Use it instead of /etc/pam.d/cerberusttpd:
+#   cp /usr/share/doc/cerberusttpd/cerberusttpd.sssd.example /etc/pam.d/cerberusttpd
+#
+# It simply follows the system's login stack, which authselect builds for you:
+#   authselect select sssd with-faillock with-mkhomedir
+# (password-auth then asks pam_sss as well as the local accounts). Web login
+# needs no PAM session, so it does not create home directories itself: see
+# "Active Directory" in the README.
+auth       include      password-auth
+account    include      password-auth

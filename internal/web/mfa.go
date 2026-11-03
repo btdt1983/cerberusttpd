@@ -86,7 +86,7 @@ func (s *Server) mfaSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ip := clientIP(r)
-	if ok, _ := s.limit.Allow(ip, sess.User); !ok {
+	if ok, _ := s.limit.Allow(ip, strings.ToLower(sess.User)); !ok {
 		s.auditAs(r, sess.User, "password+totp", "mfa", "throttled")
 		s.expire(w, r)
 		return
@@ -103,7 +103,7 @@ func (s *Server) mfaSubmit(w http.ResponseWriter, r *http.Request) {
 			f.Close()
 		}
 		if resp.Err == "denied" {
-			s.limit.Fail(ip, sess.User)
+			s.limit.Fail(ip, strings.ToLower(sess.User))
 			s.auditAs(r, sess.User, "password+totp", "mfa", "denied")
 			s.renderMFA(w, r, sess, http.StatusUnauthorized, "Invalid code.")
 			return
@@ -116,7 +116,7 @@ func (s *Server) mfaSubmit(w http.ResponseWriter, r *http.Request) {
 		s.expire(w, r)
 		return
 	}
-	s.limit.Success(ip, sess.User)
+	s.limit.Success(ip, strings.ToLower(sess.User))
 	wc, err := ipc.NewClient(files[0])
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)

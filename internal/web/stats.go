@@ -214,7 +214,7 @@ func (s *Server) statsStream(w http.ResponseWriter, r *http.Request) {
 		if _, err := sess.worker.Call(worker.Request{Op: "statfs"}, &resp); err != nil || resp.Err != "" {
 			return nil
 		}
-		b, _ := json.Marshal(map[string]int64{"total": resp.Total, "avail": resp.Avail})
+		b, _ := json.Marshal(map[string]int64{"total": resp.Total, "avail": resp.Avail, "quota_used": resp.QuotaUsed, "quota_limit": resp.QuotaLimit})
 		return b
 	}
 

@@ -53,6 +53,8 @@ type options struct {
 	addr, root, data, mode, names, domains, email, svcUser, pamService, twoFA, config string
 	dnsProvider, dnsCreds, acmeCA, acmeHTTP, albums                                   string
 	oidcIssuer, oidcClientID, oidcSecretFile, oidcUsers, oidcRedirect, oidcLabel      string
+	scanCommand                                                                       string
+	scanTimeout                                                                       time.Duration
 
 	minUID     uint
 	maxUpload  int64
@@ -82,6 +84,8 @@ func (o *options) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.oidcUsers, "oidc-users", "", "single sign-on: root-owned file mapping identities to Unix users (jan@example.com = jan)")
 	fs.StringVar(&o.oidcRedirect, "oidc-redirect-url", "", "single sign-on: https://<host>[:port]/oidc/callback, as registered with the provider")
 	fs.StringVar(&o.oidcLabel, "oidc-label", "Microsoft", "single sign-on: name on the sign-in button")
+	fs.StringVar(&o.scanCommand, "scan-command", "", "virus scanner run on every finished upload: absolute path plus arguments, the file is added last (clamscan exit codes: 0 clean, 1 infected)")
+	fs.DurationVar(&o.scanTimeout, "scan-timeout", 5*time.Minute, "give up on a scan after this long (the upload is then refused)")
 	fs.Int64Var(&o.maxUpload, "max-upload", 20<<30, "largest allowed upload in bytes (0 = unlimited)")
 	fs.DurationVar(&o.staleAfter, "stale-after", 7*24*time.Hour, "remove abandoned uploads untouched for this long (0 = never)")
 	fs.UintVar(&o.minUID, "min-uid", 1000, "lowest uid allowed to log in")

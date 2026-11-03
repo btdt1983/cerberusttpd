@@ -8,10 +8,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"regexp"
 )
 
-import "github.com/btdt1983/cerberusttpd/internal/mfa"
+import (
+	"github.com/btdt1983/cerberusttpd/internal/helper"
+	"github.com/btdt1983/cerberusttpd/internal/mfa"
+)
 
 func resetMain(args []string) error {
 	fs := flag.NewFlagSet("2fa-reset", flag.ExitOnError)
@@ -32,7 +34,7 @@ func resetMain(args []string) error {
 	if os.Geteuid() != 0 {
 		return errors.New("run as root")
 	}
-	if fs.NArg() != 1 || !regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`).MatchString(fs.Arg(0)) {
+	if fs.NArg() != 1 || !helper.ValidUser(fs.Arg(0)) {
 		return errors.New("usage: cerberusttpd 2fa-reset [-data dir] <user>")
 	}
 	st, err := mfa.Open(*data)

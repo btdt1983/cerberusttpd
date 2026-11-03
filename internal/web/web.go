@@ -160,7 +160,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, pass, ip := r.PostForm.Get("user"), r.PostForm.Get("password"), clientIP(r)
-	if ok, wait := s.limit.Allow(ip, user); !ok {
+	if ok, wait := s.limit.Allow(ip, strings.ToLower(user)); !ok {
 		w.Header().Set("Retry-After", itoa(int(wait.Seconds())+1))
 		s.auditAs(r, user, "password", "login", "throttled")
 		s.render(w, http.StatusTooManyRequests, "login", map[string]any{"Error": "Too many attempts, please try again later."})
@@ -179,8 +179,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		for _, f := range files {
 			f.Close()
 		}
-		s.limit.Fail(ip, user)
 		status, msg, result := http.StatusUnauthorized, "Invalid username or password.", "denied"
+		if resp.Err == "nohome" {
+			// The password was right: no failed-attempt penalty.
+			status, msg, result = http.StatusForbidden, noHomeMsg, "nohome"
+		} else {
+			s.limit.Fail(ip, strings.ToLower(user))
+		}
 		if resp.Err == "throttled" {
 			status, msg, result = http.StatusTooManyRequests, "Too many attempts, please try again later.", "throttled"
 		} else if err != nil || resp.Err == "internal" {
@@ -202,7 +207,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/2fa", http.StatusSeeOther)
 		return
 	}
-	s.limit.Success(ip, user)
+	s.limit.Success(ip, strings.ToLower(user))
 	wc, err := ipc.NewClient(files[0])
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)

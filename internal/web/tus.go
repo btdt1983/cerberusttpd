@@ -5,6 +5,7 @@ package web
 
 import (
 	"encoding/base64"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -188,6 +189,15 @@ func (s *Server) tusPatch(w http.ResponseWriter, r *http.Request) {
 		if _, tooBig := err.(*http.MaxBytesError); tooBig {
 			status = http.StatusRequestEntityTooLarge
 		}
+		if errors.Is(err, syscall.ENOSPC) || errors.Is(err, syscall.EDQUOT) {
+			// Disk or quota full: resuming cannot help, and what was written
+			// would keep eating the quota, so drop the partial upload.
+			var gone worker.Response
+			sess.worker.Call(worker.Request{Op: "upload_cancel", Path: dir, ID: id}, &gone)
+			s.auditSess(r, sess, "upload", "nospace", "path", dir)
+			http.Error(w, "no space left or quota exceeded", http.StatusInsufficientStorage)
+			return
+		}
 		http.Error(w, "upload interrupted", status)
 		return
 	}
@@ -201,7 +211,11 @@ func (s *Server) tusPatch(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		s.auditSess(r, sess, "upload", outcome(done.Err), "path", under(dir, done.Name), "size", resp.Length)
+		if done.Err == "infected" || done.Err == "scanfail" {
+			s.auditSess(r, sess, "upload", done.Err, "path", under(dir, done.Name), "size", resp.Length, "signature", done.Detail)
+		} else {
+			s.auditSess(r, sess, "upload", outcome(done.Err), "path", under(dir, done.Name), "size", resp.Length)
+		}
 		switch done.Err {
 		case "":
 		case "exists":
@@ -253,6 +267,10 @@ func (s *Server) tusFail(w http.ResponseWriter, resp worker.Response) {
 		http.Error(w, "offset mismatch", http.StatusConflict)
 	case "nospace":
 		http.Error(w, "no space left or quota exceeded", http.StatusInsufficientStorage)
+	case "infected":
+		http.Error(w, "file rejected: the virus scanner found something in it", http.StatusUnsupportedMediaType)
+	case "scanfail":
+		http.Error(w, "file rejected: it could not be scanned for viruses, try again later", http.StatusServiceUnavailable)
 	case "invalid":
 		http.Error(w, "invalid request", http.StatusBadRequest)
 	default:

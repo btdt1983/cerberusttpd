@@ -171,6 +171,8 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 			status, msg, result = http.StatusInternalServerError, "Signing in is not possible right now.", "error"
 		case resp.Err == "throttled":
 			status, msg, result = http.StatusTooManyRequests, "Too many attempts, please try again later.", "throttled"
+		case resp.Err == "nohome":
+			status, msg, result = http.StatusForbidden, noHomeMsg, "nohome"
 		case resp.Err == "unmapped":
 			status, msg, result = http.StatusForbidden, "Your "+s.OIDCLabel+" account is not linked to a user on this server. Ask the administrator.", "unmapped"
 		}
@@ -197,6 +199,8 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	// is a same-site navigation.
 	s.render(w, http.StatusOK, "continue", map[string]any{"To": "/files/"})
 }
+
+const noHomeMsg = "Your account has no folder on this server yet. Ask the administrator."
 
 func trim(s string, n int) string {
 	if len(s) > n {

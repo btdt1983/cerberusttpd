@@ -74,7 +74,7 @@
           store.del(key);
           throw Object.assign(new Error('already exists'), { fatal: true });
         }
-        if ([403, 404, 413, 507].includes(r.status)) {
+        if ([403, 404, 413, 415, 503, 507].includes(r.status)) {
           if (r.status !== 403) store.del(key);
           throw Object.assign(new Error((await r.text()).trim() || `error ${r.status}`), { fatal: true });
         }

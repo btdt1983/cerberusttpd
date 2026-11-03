@@ -147,8 +147,13 @@
   es.addEventListener('hello', (e) => { const d = JSON.parse(e.data); me = d.me; hist = d.hist || []; errors = 0; if (hist.length) apply(hist.pop()); else draw(); });
   es.addEventListener('stats', (e) => { errors = 0; apply(JSON.parse(e.data)); });
   es.addEventListener('disk', (e) => {
-    const d = JSON.parse(e.data), used = d.total - d.avail;
-    meter('p-disk', 'm-disk', d.total ? 100 * used / d.total : 0, `${size(d.avail)} free`);
+    const d = JSON.parse(e.data);
+    if (d.quota_limit) {
+      // a disk quota applies: show how much of it is used
+      meter('p-disk', 'm-disk', Math.min(100, 100 * d.quota_used / d.quota_limit), `${size(d.avail)} left of ${size(d.quota_limit)}`);
+    } else {
+      meter('p-disk', 'm-disk', d.total ? 100 * (d.total - d.avail) / d.total : 0, `${size(d.avail)} free`);
+    }
   });
   es.addEventListener('bye', () => { es.close(); $('totals').textContent = 'Session expired. Reload the page to sign in again.'; });
   es.onerror = () => { if (es.readyState === EventSource.CLOSED || ++errors > 3) { es.close(); $('totals').textContent = 'Connection lost. Reload the page.'; } };

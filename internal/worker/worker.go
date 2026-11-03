@@ -46,26 +46,31 @@ type Entry struct {
 }
 
 type Response struct {
-	Err      string  `json:"err,omitempty"` // notfound, forbidden, invalid, exists, conflict, nospace, internal
-	Kind     string  `json:"kind,omitempty"`
-	ID       string  `json:"id,omitempty"`
-	Offset   int64   `json:"offset,omitempty"`
-	Length   int64   `json:"length,omitempty"`
-	Writable bool    `json:"writable,omitempty"`
-	Name     string  `json:"name,omitempty"`
-	Total    int64   `json:"total,omitempty"` // statfs: filesystem size in bytes
-	Avail    int64   `json:"avail,omitempty"` // statfs: bytes this user can still use
-	Size     int64   `json:"size,omitempty"`
-	MTime    int64   `json:"mtime,omitempty"`
-	Entries  []Entry `json:"entries,omitempty"`
-	Cut      bool    `json:"cut,omitempty"`
-	Album    *Album  `json:"album,omitempty"`
-	Images   []Image `json:"images,omitempty"`
-	Data     []byte  `json:"data,omitempty"` // thumb: the bytes, when the cache could not be written
+	Err        string  `json:"err,omitempty"` // notfound, forbidden, invalid, exists, conflict, nospace, internal
+	Kind       string  `json:"kind,omitempty"`
+	ID         string  `json:"id,omitempty"`
+	Offset     int64   `json:"offset,omitempty"`
+	Length     int64   `json:"length,omitempty"`
+	Writable   bool    `json:"writable,omitempty"`
+	Name       string  `json:"name,omitempty"`
+	Detail     string  `json:"detail,omitempty"`      // upload_finish: what the virus scanner found
+	Total      int64   `json:"total,omitempty"`       // statfs: filesystem size in bytes
+	Avail      int64   `json:"avail,omitempty"`       // statfs: bytes this user can still use (free space or quota left, the smaller)
+	QuotaUsed  int64   `json:"quota_used,omitempty"`  // statfs: user quota in use, when there is a limit
+	QuotaLimit int64   `json:"quota_limit,omitempty"` // statfs: user quota limit in bytes
+	Size       int64   `json:"size,omitempty"`
+	MTime      int64   `json:"mtime,omitempty"`
+	Entries    []Entry `json:"entries,omitempty"`
+	Cut        bool    `json:"cut,omitempty"`
+	Album      *Album  `json:"album,omitempty"`
+	Images     []Image `json:"images,omitempty"`
+	Data       []byte  `json:"data,omitempty"` // thumb: the bytes, when the cache could not be written
 }
 
 // Run serves the IPC socket on fd 3 until the network process closes it.
-func Run(rootDir, cacheDir string) error {
+func Run(rootDir, cacheDir string, scan *Scanner) error {
+	scanner = scan
+	scanRoot = rootDir
 	// A compromised worker can never gain privileges via setuid binaries.
 	syscall.RawSyscall(syscall.SYS_PRCTL, 38 /* PR_SET_NO_NEW_PRIVS */, 1, 0)
 	root, err := os.OpenRoot(rootDir)
