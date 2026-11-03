@@ -3,7 +3,8 @@
 A self-contained file server in Go: sign in with your Linux account (PAM) plus
 TOTP 2FA, HTTPS with its own local CA or an automatic Let's Encrypt certificate for your
 domain (`domain = files.example.com` is enough), HTTP/3, resumable downloads and uploads
-(tus), file management, photo albums with a masonry gallery and a live sidebar with bandwidth, online users and server load.
+(tus), file management, photo albums with a masonry gallery, an audit log, optional Microsoft
+(Entra ID) single sign-on, and a live sidebar with bandwidth, online users and server load.
 
 ## How it works
 
@@ -71,6 +72,130 @@ lightbox (arrow keys, swipe, full screen picture, links to the original and a do
   removed after 60 days). If that directory cannot be created, pictures are made on the fly
   for every request. Pictures over 100 MB or 60 megapixels are not decoded; a picture
   that cannot be decoded shows its file name instead.
+
+## Single sign-on (Microsoft Entra ID)
+
+Optional. Besides the Linux password, people can sign in with their organisation's Microsoft
+account (Microsoft Entra ID, formerly Azure AD): the *Sign in with Microsoft* button appears
+on the login page and Microsoft does the password and the second factor. Without the settings
+below nothing changes, and passwords keep working next to it.
+
+> **Status: new and not yet verified against a live Microsoft tenant.** It is tested against a
+> simulated provider (token checks, mapping, browser flow, configuration), like the automatic
+> certificates were at first. If you try it, please open an issue with what worked or did not;
+> the troubleshooting list below is based on Microsoft's documented behaviour.
+
+### What you need
+
+- A working HTTPS address with a certificate browsers trust, for example `tls = acme` (see
+  *Ports and TLS*). Microsoft only sends people back to an `https` address.
+- A Microsoft Entra tenant, and a role that may register applications (Global Administrator or
+  Application Developer), or ask your IT department to do step 1 for you.
+- The people who will sign in must exist in that tenant **and** have a Linux account on the
+  server. This is by design: cerberusttpd never creates accounts.
+
+### Step 1: register the application in Microsoft Entra
+
+1. Sign in to <https://entra.microsoft.com>, then *Entra ID* → *App registrations* → *New registration*.
+2. *Name*: anything, for example `Cerberusttpd`.
+3. *Supported account types*: **Accounts in this organizational directory only (Single tenant)**.
+4. *Redirect URI*: choose the platform **Web** and enter the address people use to reach the
+   server plus `/oidc/callback`, for example `https://files.example.com/oidc/callback` (or
+   `https://files.example.com:8443/oidc/callback` if you use port 8443). It must match exactly,
+   including the port. Click *Register*.
+5. On the *Overview* page copy the **Application (client) ID** and the **Directory (tenant) ID**.
+   Both are GUIDs like `11111111-2222-3333-4444-555555555555`.
+6. Go to *Certificates & secrets* → *Client secrets* → *New client secret*. Copy the **Value**
+   right away (not the *Secret ID*); Microsoft shows it only once. Note the expiry date: when
+   it passes, sign-in stops until you make a new secret and replace the file in step 2.
+7. Find each person's **Object ID** under *Entra ID* → *Users* → the user. You need it in step 3
+   (their user name, such as `jan@example.com`, works too, but see below).
+
+No API permissions are needed: the default *User.Read* is enough.
+
+### Step 2: put the secret on the server
+
+The secret file must belong to root and be readable by root only. Type the value without it
+ending up in your shell history:
+
+    umask 077
+    read -rsp 'Client secret: ' S; echo
+    printf '%s' "$S" > /etc/cerberusttpd/oidc-secret; unset S
+    chown root:root /etc/cerberusttpd/oidc-secret
+
+### Step 3: say who may sign in as whom
+
+Create `/etc/cerberusttpd/oidc-users`, owned by root and not writable by anyone else
+(`chown root:root` and `chmod 600`), one line per person, `identity = linux user`:
+
+    # Microsoft identity            = Linux account
+    oid:00000000-0000-0000-0000-000000000000 = jan
+    piet@example.com                         = piet
+
+- `oid:<Object ID>` is the recommended form: it never changes. A user name (`jan@example.com`)
+  is also accepted (case does not matter), but Microsoft documents it as something an
+  administrator can change or reuse, so it is weaker. If both match, the Object ID wins.
+- Only people listed here can sign in. Someone who signs in correctly with Microsoft but is not
+  listed gets a refusal, and the audit log says `result=unmapped idp_user=<who>` so you can see
+  whom to add. The file is read at every sign-in: edits apply immediately.
+- The Linux account must exist, be an ordinary user (uid at least `min-uid`, never root) and
+  pass the PAM account checks.
+
+### Step 4: switch it on
+
+Add to `/etc/cerberusttpd/cerberusttpd.conf` (all five lines are needed together):
+
+    oidc-issuer = https://login.microsoftonline.com/<Directory (tenant) ID>/v2.0
+    oidc-client-id = <Application (client) ID>
+    oidc-client-secret-file = /etc/cerberusttpd/oidc-secret
+    oidc-users = /etc/cerberusttpd/oidc-users
+    oidc-redirect-url = https://files.example.com/oidc/callback
+    #oidc-label = Microsoft        # the name on the button
+
+Use the tenant **ID** (the GUID), not a domain such as `contoso.onmicrosoft.com`. Then
+`systemctl restart cerberusttpd` (this signs everyone out). A mistake in the settings, or in the
+permissions of the two files, is reported at start-up: see `journalctl -u cerberusttpd`.
+
+### Step 5: try it
+
+Open the site in a private window. Under the password form there is now *Sign in with
+Microsoft*. After signing in at Microsoft you land in the file list as the mapped Linux user.
+Check `journalctl -u cerberusttpd | grep msg=audit`: a successful sign-in shows `auth=oidc`.
+
+### If it does not work
+
+Microsoft's own error page (at login.microsoftonline.com) shows an `AADSTS` code; problems after
+that show only a general message here, with the details in `journalctl -u cerberusttpd`
+(search for `oidc`).
+
+| What you see | Likely cause |
+| --- | --- |
+| Microsoft: `AADSTS50011` redirect URI mismatch | The URI in step 1 differs from `oidc-redirect-url` (port, `http`/`https`, trailing slash). |
+| Microsoft: `AADSTS700016` application not found | Wrong client ID, or the tenant ID does not belong to that application. |
+| Microsoft: `AADSTS65001` consent required | An administrator must click *Grant admin consent* under *API permissions*. |
+| Microsoft: `AADSTS50105` user not assigned | The application requires assignment: add the user under *Enterprise applications* → *Users and groups*. |
+| Here: "Signing in is not possible right now" | The server could not reach Microsoft, or the issuer is wrong (domain instead of tenant ID). Journal: `oidc discovery`. |
+| Here: "Signing in with Microsoft failed" | Journal says why: `AADSTS7000215` invalid client secret (you used the *Secret ID*, or copied it wrongly), `AADSTS7000222` secret expired, or a token check failed. |
+| Here: "not linked to a user on this server" | The person is not in `oidc-users`, or the Linux account is missing, is root or has a uid below `min-uid`. |
+| Here: "Signing in with Microsoft failed", journal: `account not valid` | The Linux account is expired or its password has expired (PAM account check). |
+
+### Good to know
+
+- **Skips TOTP.** A Microsoft sign-in does not ask for the cerberusttpd authenticator code,
+  whatever `2fa` says; require MFA in Microsoft (Conditional Access / security defaults). It
+  does not check how Microsoft authenticated the person.
+- **Locking an account.** `usermod -L` (locked password) does *not* stop single sign-on. Remove the
+  person from `oidc-users`, or expire the account (`chage -E 0 <user>`).
+- **Sign out** ends the session on this server only, not at Microsoft.
+- **Limits.** One provider; no automatic account creation; no group or role mapping. Other
+  OpenID Connect providers that send a `preferred_username` claim (Keycloak, for example) should
+  work with the same settings but are untested. Providers that only give an e-mail address
+  (Google) cannot be used: an e-mail address is never trusted as an identity.
+- **How it stays safe.** The root process does the entire sign-in itself: the exchange of the
+  code using the secret (with PKCE), the token's signature, issuer (which pins your tenant),
+  audience, expiry and nonce, and the choice of Linux account. The network process only carries
+  the browser's code; it never sees the secret and cannot pick the user, so compromising it
+  does not let anyone sign in as somebody else.
 
 ## Audit log
 

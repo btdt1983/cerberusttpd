@@ -18,7 +18,10 @@ const pages = `
 <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
 {{if .Error}}<p class="err" role="alert">{{.Error}}</p>{{end}}
 <button type="submit">Sign in</button>
-</form></body></html>{{end}}
+</form>
+{{if .SSO}}<form class="login card" method="post" action="/oidc/login"><p class="mut">Or sign in with your organisation account.</p><button type="submit">Sign in with {{.SSO}}</button></form>{{end}}
+</body></html>{{end}}
+{{define "continue"}}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url={{.To}}"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Signing in · Cerberusttpd</title><link rel="stylesheet" href="/static/app.css"></head><body><div class="login card"><p class="mut">Signing in… <a href="{{.To}}">Continue</a></p></div></body></html>{{end}}
 {{define "mfa"}}{{template "head" "Two-factor authentication"}}
 <div class="login card">
 {{if .Enroll}}<h2>Set up two-factor authentication</h2>

@@ -50,20 +50,25 @@ type Config struct {
 	MFA        *mfa.Store // nil disables 2FA
 	DataDir    string
 	StaleAfter time.Duration // abandoned uploads older than this are removed
+	OIDC       *OIDC         // single sign-on; nil disables it
 }
 
 type Request struct {
-	Op       string `json:"op"` // login, mfa_setup, mfa_verify, leaf
+	Op       string `json:"op"` // login, mfa_setup, mfa_verify, leaf, oidc_begin, oidc_login
 	User     string `json:"user,omitempty"`
 	Password string `json:"password,omitempty"`
 	RHost    string `json:"rhost,omitempty"`
 	Pending  string `json:"pending,omitempty"`
 	Code     string `json:"code,omitempty"`
+	State    string `json:"state,omitempty"`    // oidc_begin: the browser's anti-forgery state
+	Nonce    string `json:"nonce,omitempty"`    // oidc_begin, oidc_login
+	Verifier string `json:"verifier,omitempty"` // oidc_begin, oidc_login: PKCE
+	AuthCode string `json:"authcode,omitempty"` // oidc_login: the authorization code from the provider
 }
 
 type Response struct {
 	OK       bool     `json:"ok"`
-	Err      string   `json:"err,omitempty"` // denied, throttled, expired, internal
+	Err      string   `json:"err,omitempty"` // denied, throttled, expired, unmapped, internal
 	MFA      string   `json:"mfa,omitempty"` // "verify" or "enroll": password was right, a code is still needed
 	Pending  string   `json:"pending,omitempty"`
 	User     string   `json:"user,omitempty"`
@@ -75,6 +80,8 @@ type Response struct {
 	Cert     []byte   `json:"cert,omitempty"`
 	Key      []byte   `json:"key,omitempty"`
 	CAPEM    []byte   `json:"ca,omitempty"`
+	URL      string   `json:"url,omitempty"` // oidc_begin: where the browser signs in
+	IdP      string   `json:"idp,omitempty"` // oidc_login: who the provider says it was (for the audit log)
 }
 
 // pending is a user who passed PAM but not yet the second factor. It lives only
@@ -91,6 +98,8 @@ type server struct {
 	Config
 	limit *limiter.Login
 
+	oidc *oidcClient
+
 	mu      sync.Mutex
 	pending map[string]*pending
 	seen    map[string]time.Time // last login per user, for the upload cleanup
@@ -99,6 +108,9 @@ type server struct {
 // Serve answers requests on f until the network process goes away.
 func Serve(f *os.File, cfg Config) error {
 	s := &server{Config: cfg, limit: limiter.NewLogin(), pending: map[string]*pending{}}
+	if cfg.OIDC != nil {
+		s.oidc = newOIDCClient(*cfg.OIDC)
+	}
 	go s.janitor()
 	return ipc.Serve(f, func(raw json.RawMessage) (any, []*os.File) {
 		var req Request
@@ -114,6 +126,10 @@ func Serve(f *os.File, cfg Config) error {
 			return s.mfaVerify(req)
 		case "leaf":
 			return s.leaf(), nil
+		case "oidc_begin":
+			return s.oidcBegin(req), nil
+		case "oidc_login":
+			return s.oidcLogin(req)
 		}
 		return Response{Err: "internal"}, nil
 	})
@@ -276,10 +292,18 @@ func (s *server) complete(u *user.User, host string) (Response, []*os.File) {
 
 // eligible validates the name shape and refuses root and system accounts.
 func (s *server) eligible(req Request) (*user.User, bool) {
-	if !userRE.MatchString(req.User) || req.Password == "" || len(req.Password) > maxPassword {
+	if req.Password == "" || len(req.Password) > maxPassword {
 		return nil, false
 	}
-	u, err := user.Lookup(req.User)
+	return s.eligibleName(req.User)
+}
+
+// eligibleName is the part of eligible that does not involve a password.
+func (s *server) eligibleName(name string) (*user.User, bool) {
+	if !userRE.MatchString(name) {
+		return nil, false
+	}
+	u, err := user.Lookup(name)
 	if err != nil {
 		return nil, false
 	}

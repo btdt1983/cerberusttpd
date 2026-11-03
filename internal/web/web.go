@@ -32,6 +32,7 @@ var staticFS embed.FS
 type Server struct {
 	helper    *ipc.Client
 	sess      *sessions
+	flows     *oidcFlows
 	loginSem  chan struct{}
 	limit     *limiter.Login
 	stats     stats
@@ -41,6 +42,7 @@ type Server struct {
 	MaxUpload int64        // bytes; 0 means unlimited
 	Albums    bool         // photo albums: gallery, editor and thumbnails
 	Audit     *slog.Logger // security-relevant events, see audit.go
+	OIDCLabel string       // non-empty turns single sign-on on; the name on the button
 	tpl       *template.Template
 }
 
@@ -48,6 +50,7 @@ func New(h *ipc.Client) *Server {
 	s := &Server{
 		helper:   h,
 		sess:     newSessions(),
+		flows:    newOIDCFlows(),
 		done:     make(chan struct{}),
 		loginSem: make(chan struct{}, 8),
 		limit:    limiter.NewLogin(),
@@ -74,6 +77,10 @@ func (s *Server) Handler(altSvc string) http.Handler {
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("POST /login", s.login)
 	mux.HandleFunc("POST /logout", s.logout)
+	if s.OIDCLabel != "" {
+		mux.HandleFunc("POST "+oidcLoginPath, s.oidcStart)
+		mux.HandleFunc("GET /oidc/callback", s.oidcCallback)
+	}
 	mux.HandleFunc("GET /2fa", s.mfaPage)
 	mux.HandleFunc("POST /2fa", s.mfaSubmit)
 	mux.HandleFunc("GET /2fa/qr.png", s.mfaQR)
@@ -368,6 +375,9 @@ func (s *Server) fail(w http.ResponseWriter, code string) {
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, name string, data any) {
+	if m, ok := data.(map[string]any); ok && name == "login" && s.OIDCLabel != "" {
+		m["SSO"] = s.OIDCLabel
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)

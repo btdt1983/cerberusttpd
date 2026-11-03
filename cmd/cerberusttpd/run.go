@@ -81,6 +81,11 @@ func runMain(args []string) error {
 
 	cfg := helper.Config{Exe: exe, PAMService: o.pamService, MinUID: uint32(o.minUID), Root: o.root,
 		DataDir: o.data, StaleAfter: o.staleAfter}
+	if o.oidcEnabled() {
+		if cfg.OIDC, err = o.loadOIDC(); err != nil {
+			return err
+		}
+	}
 	switch o.twoFA {
 	case "required":
 		if cfg.MFA, err = mfa.Open(o.data); err != nil {

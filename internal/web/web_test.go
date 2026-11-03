@@ -24,7 +24,8 @@ func TestTemplatesRender(t *testing.T) {
 		"Icon": "file", "Download": "a.txt?dl", "Dir": false, "Size": int64(2048), "MTime": time.Now()}
 	rows := []any{}
 	pages := map[string]any{
-		"login":    map[string]any{"Error": "failed"},
+		"login":    map[string]any{"Error": "failed", "SSO": "Micro<soft>"},
+		"continue": map[string]any{"To": "/files/"},
 		"mfa":      map[string]any{"Enroll": true, "Secret": "ABCD EFGH", "User": "u", "Error": "x"},
 		"recovery": map[string]any{"Codes": []string{"aaaaa-bbbbb"}},
 		"error":    map[string]any{"Title": "Not found", "Message": "gone"},

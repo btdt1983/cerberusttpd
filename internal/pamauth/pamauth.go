@@ -16,6 +16,28 @@ var mu sync.Mutex
 
 var ErrDenied = errors.New("authentication failed")
 
+// Account runs account management only (expired accounts, faillock), for a
+// user who was authenticated elsewhere, for example by single sign-on.
+func Account(service, user, rhost string) error {
+	mu.Lock()
+	defer mu.Unlock()
+	t, err := pam.StartFunc(service, user, func(pam.Style, string) (string, error) {
+		return "", errors.New("unsupported PAM prompt")
+	})
+	if err != nil {
+		return err
+	}
+	defer t.End()
+	if rhost != "" {
+		_ = t.SetItem(pam.Rhost, rhost)
+	}
+	_ = t.SetItem(pam.Tty, "cerberusttpd")
+	if err := t.AcctMgmt(0); err != nil {
+		return ErrDenied
+	}
+	return nil
+}
+
 // Check runs authenticate and account management (expired/locked accounts) for
 // service. No PAM session is opened.
 func Check(service, user, password, rhost string) error {
