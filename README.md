@@ -72,6 +72,24 @@ lightbox (arrow keys, swipe, full screen picture, links to the original and a do
   for every request. Pictures over 100 MB or 60 megapixels are not decoded; a picture
   that cannot be decoded shows its file name instead.
 
+## Audit log
+
+Security-relevant events are written to the journal, one line each, with `msg=audit`:
+
+    journalctl -u cerberusttpd | grep msg=audit
+
+    event=login user=jan ip=192.0.2.7 auth=password+totp result=ok
+    event=download user=jan ip=192.0.2.7 auth=password+totp result=ok path=docs/report.pdf size=48211 range=""
+
+Fields: `event`, `user` (the typed name on a failed login), `ip`, `auth` (`password` or
+`password+totp`), `result` (`ok`, or why not: `denied`, `throttled`, `forbidden`, `exists`, ...)
+and event details such as `path`. Logged: sign-in (success, failure, throttled, second
+factor), sign-out, downloads (a `range` marks a partial read), uploads, new folders, renames
+(`to`), deletes, refused access, and album changes. Not logged: directory listings,
+thumbnails and the live sidebar. Values are quoted, so a file name with a newline cannot
+forge a line. Passwords, codes and session tokens never appear. The journal is the place to
+keep it safe: forward it to a log server if the host itself is not trusted.
+
 ## Administration
 
 - Reset a user's 2FA: `sudo /opt/cerberusttpd/cerberusttpd 2fa-reset -config /etc/cerberusttpd/cerberusttpd.conf <user>`

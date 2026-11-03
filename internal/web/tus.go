@@ -201,6 +201,7 @@ func (s *Server) tusPatch(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		s.auditSess(r, sess, "upload", outcome(done.Err), "path", under(dir, done.Name), "size", resp.Length)
 		switch done.Err {
 		case "":
 		case "exists":
@@ -231,6 +232,7 @@ func (s *Server) tusDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	s.auditSess(r, sess, "upload_cancel", outcome(resp.Err), "path", dir)
 	if resp.Err != "" {
 		s.tusFail(w, resp)
 		return
@@ -275,6 +277,7 @@ func (s *Server) mkdir(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	s.auditSess(r, sess, "mkdir", outcome(resp.Err), "path", under(dir, r.PostForm.Get("name")))
 	if resp.Err != "" {
 		s.fail(w, resp.Err)
 		return

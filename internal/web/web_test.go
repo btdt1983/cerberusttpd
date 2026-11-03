@@ -5,6 +5,7 @@ package web
 
 import (
 	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -177,5 +178,62 @@ func TestAlbumRoutesFollowTheSwitch(t *testing.T) {
 				t.Errorf("albums=%v %s %s: status %d", on, c.method, c.url, rec.Code)
 			}
 		}
+	}
+}
+
+// auditTo points the server's audit sink at a buffer.
+func auditTo(s *Server) *bytes.Buffer {
+	var b bytes.Buffer
+	s.Audit = slog.New(slog.NewTextHandler(&b, nil))
+	return &b
+}
+
+// File names and typed user names are attacker-controlled: a newline or quote
+// in them must stay inside one quoted value and never start a second line.
+func TestAuditCannotBeForged(t *testing.T) {
+	s := New(nil)
+	buf := auditTo(s)
+	r := httptest.NewRequest("POST", "/login", nil)
+	r.RemoteAddr = "192.0.2.7:5555"
+	evil := "mallory\" event=login user=root result=ok\nmsg=audit event=login user=root result=ok"
+	s.auditAs(r, evil, "password", "login", "denied")
+	s.auditSess(r, &Session{User: "jan", Auth: "password+totp"}, "download", "ok", "path", "a\nb\x1b[31m\"c", "range", "")
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("%d lines, want 2:\n%s", len(lines), buf.String())
+	}
+	for _, l := range lines {
+		if !strings.Contains(l, "msg=audit") || !strings.Contains(l, "ip=192.0.2.7") {
+			t.Errorf("incomplete line: %s", l)
+		}
+	}
+	if strings.Contains(buf.String(), "\x1b") {
+		t.Error("control character written raw")
+	}
+	if !strings.Contains(lines[1], "user=jan") || !strings.Contains(lines[1], "auth=password+totp") {
+		t.Errorf("session fields missing: %s", lines[1])
+	}
+}
+
+func TestLogoutIsAudited(t *testing.T) {
+	s := New(nil)
+	buf := auditTo(s)
+	token, err := s.sess.create(&Session{User: "jan", Auth: "password", Stage: StageFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("POST", "/logout", nil)
+	req.RemoteAddr = "192.0.2.9:1"
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+	s.Handler("").ServeHTTP(httptest.NewRecorder(), req)
+	out := buf.String()
+	for _, want := range []string{"event=logout", "user=jan", "auth=password", "result=ok", "ip=192.0.2.9"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in %q", want, out)
+		}
+	}
+	if strings.Contains(out, token) {
+		t.Error("session token in the audit log")
 	}
 }

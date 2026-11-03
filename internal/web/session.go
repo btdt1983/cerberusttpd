@@ -35,6 +35,7 @@ type Session struct {
 	User    string
 	UID     uint32
 	Admin   bool
+	Auth    string // how the user proved who they are: password, password+totp (for the audit log)
 	Stage   Stage
 	Created time.Time
 	seen    time.Time

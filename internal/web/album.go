@@ -87,6 +87,7 @@ func (s *Server) albumCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	s.auditSess(r, sess, "album_create", outcome(resp.Err), "path", dir)
 	if resp.Err != "" && resp.Err != "exists" { // exists: someone was faster, just open it
 		s.fail(w, resp.Err)
 		return
@@ -247,6 +248,7 @@ func (s *Server) albumEditDo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	s.auditSess(r, sess, "album_save", outcome(resp.Err), "path", dir)
 	if resp.Err == "invalid" {
 		http.Redirect(w, r, "/album/edit?err=1&dir="+url.QueryEscape(dir), http.StatusSeeOther)
 		return

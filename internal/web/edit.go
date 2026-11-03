@@ -80,6 +80,7 @@ func (s *Server) editDo(mode string) http.HandlerFunc {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+		s.auditSess(r, sess, mode, outcome(resp.Err), "path", rel, "to", req.Name)
 		if resp.Err != "" {
 			msg := errText[resp.Err]
 			if msg == "" {
@@ -200,7 +201,13 @@ func (s *Server) deleteDo(w http.ResponseWriter, r *http.Request) {
 	for _, p := range paths {
 		var resp worker.Response
 		it := delItem{Path: p, Name: path.Base(p)}
-		if _, err := sess.worker.Call(worker.Request{Op: "delete", Path: p, Recursive: recursive}, &resp); err != nil {
+		_, err := sess.worker.Call(worker.Request{Op: "delete", Path: p, Recursive: recursive}, &resp)
+		result := outcome(resp.Err)
+		if err != nil {
+			result = "error"
+		}
+		s.auditSess(r, sess, "delete", result, "path", p, "recursive", recursive)
+		if err != nil {
 			it.Error = "Internal error."
 		} else if resp.Err == "notempty" {
 			it.Error = "The folder is not empty; tick the box to delete its contents too."

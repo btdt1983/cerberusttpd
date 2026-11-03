@@ -87,12 +87,14 @@ func (s *Server) mfaSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	ip := clientIP(r)
 	if ok, _ := s.limit.Allow(ip, sess.User); !ok {
+		s.auditAs(r, sess.User, "password+totp", "mfa", "throttled")
 		s.expire(w, r)
 		return
 	}
 	var resp helper.Response
 	files, err := s.helper.Call(helper.Request{Op: "mfa_verify", Pending: sess.Pending, Code: strings.TrimSpace(r.PostForm.Get("code"))}, &resp)
 	if err != nil {
+		s.auditAs(r, sess.User, "password+totp", "mfa", "error")
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -102,9 +104,15 @@ func (s *Server) mfaSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 		if resp.Err == "denied" {
 			s.limit.Fail(ip, sess.User)
+			s.auditAs(r, sess.User, "password+totp", "mfa", "denied")
 			s.renderMFA(w, r, sess, http.StatusUnauthorized, "Invalid code.")
 			return
 		}
+		result := resp.Err
+		if result == "" {
+			result = "error"
+		}
+		s.auditAs(r, sess.User, "password+totp", "mfa", result)
 		s.expire(w, r)
 		return
 	}
@@ -114,12 +122,13 @@ func (s *Server) mfaSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	token, err := s.sess.promote(old, &Session{User: resp.User, UID: resp.UID, Admin: resp.Admin, Stage: StageFull, worker: wc})
+	token, err := s.sess.promote(old, &Session{User: resp.User, UID: resp.UID, Admin: resp.Admin, Auth: "password+totp", Stage: StageFull, worker: wc})
 	if err != nil {
 		wc.Close()
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	s.auditAs(r, resp.User, "password+totp", "login", "ok", "enrolled", len(resp.Recovery) > 0)
 	s.setCookie(w, token, int(maxLife.Seconds()))
 	if len(resp.Recovery) > 0 {
 		s.render(w, http.StatusOK, "recovery", map[string]any{"Codes": resp.Recovery})

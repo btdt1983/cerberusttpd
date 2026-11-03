@@ -10,6 +10,7 @@ import (
 	"embed"
 	"html/template"
 	"io/fs"
+	"log/slog"
 	"mime"
 	"net"
 	"net/http"
@@ -36,9 +37,10 @@ type Server struct {
 	stats     stats
 	done      chan struct{} // closed on shutdown so live streams end
 	doneOnce  sync.Once
-	CAPEM     []byte // public root certificate, served for trust setup
-	MaxUpload int64  // bytes; 0 means unlimited
-	Albums    bool   // photo albums: gallery, editor and thumbnails
+	CAPEM     []byte       // public root certificate, served for trust setup
+	MaxUpload int64        // bytes; 0 means unlimited
+	Albums    bool         // photo albums: gallery, editor and thumbnails
+	Audit     *slog.Logger // security-relevant events, see audit.go
 	tpl       *template.Template
 }
 
@@ -50,6 +52,7 @@ func New(h *ipc.Client) *Server {
 		loginSem: make(chan struct{}, 8),
 		limit:    limiter.NewLogin(),
 		tpl:      newTemplates(),
+		Audit:    newAudit(),
 	}
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -152,6 +155,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	user, pass, ip := r.PostForm.Get("user"), r.PostForm.Get("password"), clientIP(r)
 	if ok, wait := s.limit.Allow(ip, user); !ok {
 		w.Header().Set("Retry-After", itoa(int(wait.Seconds())+1))
+		s.auditAs(r, user, "password", "login", "throttled")
 		s.render(w, http.StatusTooManyRequests, "login", map[string]any{"Error": "Too many attempts, please try again later."})
 		return
 	}
@@ -169,16 +173,18 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			f.Close()
 		}
 		s.limit.Fail(ip, user)
-		status, msg := http.StatusUnauthorized, "Invalid username or password."
+		status, msg, result := http.StatusUnauthorized, "Invalid username or password.", "denied"
 		if resp.Err == "throttled" {
-			status, msg = http.StatusTooManyRequests, "Too many attempts, please try again later."
+			status, msg, result = http.StatusTooManyRequests, "Too many attempts, please try again later.", "throttled"
 		} else if err != nil || resp.Err == "internal" {
-			status, msg = http.StatusInternalServerError, "Signing in is not possible right now."
+			status, msg, result = http.StatusInternalServerError, "Signing in is not possible right now.", "error"
 		}
+		s.auditAs(r, user, "password", "login", result)
 		s.render(w, status, "login", map[string]any{"Error": msg})
 		return
 	}
 	if resp.MFA != "" {
+		s.auditAs(r, resp.User, "password", "login", "mfa_required", "mode", resp.MFA)
 		// Password ok, no files yet: park the login until the code is checked.
 		token, err := s.sess.create(&Session{User: resp.User, Stage: StagePassword, Pending: resp.Pending, MFAMode: resp.MFA})
 		if err != nil {
@@ -196,12 +202,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Fresh token per login prevents session fixation.
-	token, err := s.sess.create(&Session{User: resp.User, UID: resp.UID, Admin: resp.Admin, Stage: StageFull, worker: wc})
+	token, err := s.sess.create(&Session{User: resp.User, UID: resp.UID, Admin: resp.Admin, Auth: "password", Stage: StageFull, worker: wc})
 	if err != nil {
 		wc.Close()
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	s.auditAs(r, resp.User, "password", "login", "ok")
 	s.setCookie(w, token, int(maxLife.Seconds()))
 	http.Redirect(w, r, "/files/", http.StatusSeeOther)
 }
@@ -215,6 +222,9 @@ func (s *Server) setCookie(w http.ResponseWriter, token string, maxAge int) {
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(cookieName); err == nil {
+		if sess := s.sess.peek(c.Value); sess != nil {
+			s.auditSess(r, sess, "logout", "ok")
+		}
 		s.sess.destroy(c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
@@ -241,6 +251,9 @@ func (s *Server) files(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	if resp.Err != "" {
+		if resp.Err == "forbidden" {
+			s.auditSess(r, sess, "access", "forbidden", "path", rel)
+		}
 		s.fail(w, resp.Err)
 		return
 	}
@@ -263,6 +276,10 @@ func (s *Server) files(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Security-Policy", "sandbox; default-src 'none'")
 	h.Set("Cache-Control", "private, no-cache")
 	name := path.Base(rel)
+	if r.Method == http.MethodGet {
+		// One event per request; a Range header marks a partial or resumed read.
+		s.auditSess(r, sess, "download", "ok", "path", rel, "size", resp.Size, "range", r.Header.Get("Range"))
+	}
 	if r.URL.Query().Has("dl") || risky(name) {
 		h.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
 	}
