@@ -295,14 +295,41 @@ quoting); the file's path is added as the last argument. It runs as the user who
 an almost empty environment, and follows the `clamscan` exit codes: **0 clean, 1 infected,
 anything else is a failure**. Any scanner that behaves like that works.
 
-> **Status: tested with stand-in scanners under the packaged systemd unit (clean, infected,
-> failing, hanging); not yet verified with a real ClamAV.** With ClamAV, check these:
-> - `--fdpass` is needed: home directories are 0700 and `clamd` runs as its own user. (On EL:
->   `dnf install clamav clamd` from EPEL, `systemctl enable --now clamd@scan`.)
-> - Files larger than clamd's `MaxFileSize`/`MaxScanSize` are passed as clean unless you set
->   `AlertExceedsMax yes`.
-> - SELinux may block `clamdscan` from reading files: look for AVC messages and the
->   `antivirus_can_scan_system` boolean.
+> **Status: verified with ClamAV 1.4.6 from EPEL on AlmaLinux 9 under the packaged systemd unit and
+> SELinux enforcing** (a clean file passes, the EICAR test file is refused). The steps below are
+> what that took.
+
+Setting up ClamAV on EL (EPEL), step by step:
+
+    dnf install clamav clamd                    # from EPEL; clamav-freshclam comes along
+    freshclam                                   # fetch the signatures once
+    systemctl enable --now clamav-freshclam     # keeps them current (it is NOT enabled by the package)
+    # /etc/clamd.d/scan.conf: set the socket so every user can reach it
+    #     LocalSocket /run/clamd.scan/clamd.sock
+    #     LocalSocketMode 666
+    echo 'd /run/clamd.scan 0755 clamscan virusgroup' > /etc/tmpfiles.d/clamd.scan.conf
+    systemd-tmpfiles --create /etc/tmpfiles.d/clamd.scan.conf
+    setsebool -P antivirus_can_scan_system 1
+    systemctl enable --now clamd@scan
+    # then in cerberusttpd.conf, and restart cerberusttpd:
+    scan-command = /usr/bin/clamdscan --fdpass --no-summary
+
+- **`setsebool -P antivirus_can_scan_system 1` is required.** Without it SELinux stops `clamd` from
+  reading the uploaded file, every upload fails with "could not be scanned" (`result=scanfail`) and
+  the journal shows an `antivirus_t` AVC on a `user_home_t` file.
+- **The socket has to be reachable by every user** (mode 666 in a 0755 directory), because the scan runs
+  as the uploading user. Any local user can then ask `clamd` to scan files they hand it; that is a
+  small denial-of-service surface, not a way to read other people's files (`--fdpass` passes an
+  already opened file).
+- `--fdpass` is needed: home directories are 0700 and `clamd` runs as its own user.
+- `clamd` keeps the signatures in memory (about 1.2 GB on EL9): plan for it.
+- **Large uploads keep working, but they are not scanned.** Files larger than clamd's `MaxFileSize`
+  (400 MB by default) or `MaxScanSize` are passed as clean, quickly, without being scanned. This is
+  the recommended setting when you accept very large uploads. `AlertExceedsMax yes` would refuse
+  such uploads instead, so leave it off if big files must work. To scan bigger files, raise
+  `MaxFileSize` and `MaxScanSize` in `/etc/clamd.d/scan.conf` (clamd allows up to 4 GB) and also
+  raise `scan-timeout` (default 5 minutes): a scan that runs out of time refuses the upload.
+- To try it: upload a text file with the EICAR test string; it must be refused.
 
 This is a check at upload time, not a guarantee: the owner can still change a file afterwards,
 and files that reach the folder in other ways (SSH, Samba) are not scanned. Empty files are

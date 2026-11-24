@@ -11,6 +11,7 @@ Source0:        cerberusttpd-%{version}.tar.gz
 BuildRequires:  systemd-rpm-macros
 Requires:       pam
 Requires(pre):  shadow-utils
+Suggests:       clamd
 %{?systemd_requires}
 
 %description
