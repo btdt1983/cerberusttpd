@@ -342,8 +342,9 @@ sidebar shows the quota instead of the whole disk: *"3.0 MiB left of 8.0 MiB"*, 
 runs into the limit stops with *"no space left or quota exceeded"* and leaves nothing behind.
 Without quotas nothing changes and the sidebar shows the free space of the disk. Only user quotas
 are shown (not group or project quotas); the smaller of the free disk space and the quota left is
-used. Verified with an XFS filesystem with a user quota (`uquota`) under the packaged unit; ext4
-(`usrquota`) uses the same kernel call and is expected to work but was not tried. The unit lists
+used. Verified with an XFS filesystem with a user quota (`uquota`) under the packaged unit, and on
+ext4 (`usrquota`, quota feature) with a live test that fills a user's quota (the limit and the
+space left are read correctly and the write that crosses the limit is reported as "no space"). The unit lists
 `quotactl` in its system call filter for this: without it the quota simply does not appear, so
 after upgrading from an older package make sure the new unit is in use.
 

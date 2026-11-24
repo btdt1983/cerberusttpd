@@ -70,3 +70,41 @@ func TestDeviceOf(t *testing.T) {
 		}
 	}
 }
+
+// A live check against a real filesystem, for ext4 and XFS: set CT_QUOTA_DIR to
+// a directory on a filesystem with user quotas that this test's user owns, and
+// CT_QUOTA_LIMIT to that user's hard block limit in bytes. Skipped otherwise.
+func TestQuotaLive(t *testing.T) {
+	dir := os.Getenv("CT_QUOTA_DIR")
+	if dir == "" {
+		t.Skip("CT_QUOTA_DIR is not set")
+	}
+	var want int64
+	if _, err := fmt.Sscan(os.Getenv("CT_QUOTA_LIMIT"), &want); err != nil || want <= 0 {
+		t.Fatal("CT_QUOTA_LIMIT must be the hard limit in bytes")
+	}
+	root := openRoot(t, dir)
+	before := fsInfo(root)
+	if before.QuotaLimit != want || before.Avail > want {
+		t.Fatalf("before: limit %d (want %d), avail %d", before.QuotaLimit, want, before.Avail)
+	}
+	f, err := root.Create("fill.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	chunk := make([]byte, 1<<20)
+	var werr error
+	for i := 0; i < int(want>>20)+4 && werr == nil; i++ {
+		_, werr = f.Write(chunk)
+	}
+	if code := errCode(werr); werr == nil || code != "nospace" {
+		t.Fatalf("writing past the quota: err %v, code %q (want nospace)", werr, code)
+	}
+	f.Sync()
+	after := fsInfo(root)
+	if after.QuotaUsed < want/2 || after.Avail > want/4 {
+		t.Errorf("after filling: used %d, avail %d of limit %d", after.QuotaUsed, after.Avail, after.QuotaLimit)
+	}
+	t.Logf("limit %d, used %d, avail %d before=%d", after.QuotaLimit, after.QuotaUsed, after.Avail, before.Avail)
+}
