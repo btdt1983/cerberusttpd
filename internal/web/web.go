@@ -42,6 +42,8 @@ type Server struct {
 	MaxUpload    int64        // bytes; 0 means unlimited
 	Albums       bool         // photo albums: gallery, editor and thumbnails
 	Shares       bool         // share links for people without an account
+	ShareUsers   bool         // sharing files with chosen users
+	ShareGroups  []string     // groups files may be shared with
 	ShareMaxDays int          // longest a share link may live
 	Audit        *slog.Logger // security-relevant events, see audit.go
 	Status       []StatusItem // settings the admin page shows
@@ -103,8 +105,17 @@ func (s *Server) Handler(altSvc string) http.Handler {
 	mux.HandleFunc("GET /admin", s.adminPage)
 	mux.HandleFunc("POST /admin/revoke", s.adminRevoke)
 	mux.HandleFunc("POST /admin/kill", s.adminKill)
-	if s.Shares {
+	if s.Sharing() {
 		mux.HandleFunc("GET /share", s.shareForm)
+	}
+	if s.Internal() {
+		mux.HandleFunc("POST /share/people", s.peopleSet)
+		mux.HandleFunc("GET /shared", s.sharedPage)
+		mux.HandleFunc("GET /shared/get", s.sharedGet)
+		mux.HandleFunc("POST /shared/stop", s.peopleStop)
+		mux.HandleFunc("POST /admin/stop", s.adminStop)
+	}
+	if s.Shares {
 		mux.HandleFunc("POST /share", s.shareCreate)
 		mux.HandleFunc("GET /shares", s.shareList)
 		mux.HandleFunc("POST /share/revoke", s.shareRevoke)
@@ -141,6 +152,12 @@ func (s *Server) Handler(altSvc string) http.Handler {
 		csrf.ServeHTTP(w, r)
 	})
 }
+
+// Internal reports whether files can be shared with chosen users or groups.
+func (s *Server) Internal() bool { return s.ShareUsers || len(s.ShareGroups) > 0 }
+
+// Sharing reports whether any kind of sharing is on.
+func (s *Server) Sharing() bool { return s.Shares || s.Internal() }
 
 func (s *Server) current(r *http.Request) *Session {
 	c, err := r.Cookie(cookieName)
@@ -379,7 +396,7 @@ func (s *Server) listing(w http.ResponseWriter, r *http.Request, sess *Session, 
 		title = path.Base(rel)
 	}
 	s.render(w, http.StatusOK, "browse", map[string]any{"Title": title, "Crumbs": crumbs(rel), "User": sess.User, "Admin": sess.Admin, "Path": cur, "Rows": rows, "Root": rel == "", "Cut": resp.Cut, "Writable": resp.Writable, "Dir": strings.Trim(rel, "/"),
-		"Shares": s.Shares, "HasAlbum": hasAlbum, "CanAlbum": hasImages && !hasAlbum && resp.Writable, "AlbumTitle": title})
+		"Shares": s.Shares, "Sharing": s.Sharing(), "Internal": s.Internal(), "HasAlbum": hasAlbum, "CanAlbum": hasImages && !hasAlbum && resp.Writable, "AlbumTitle": title})
 }
 
 // fail answers an HTML page request with a readable error page.

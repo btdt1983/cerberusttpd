@@ -54,6 +54,8 @@ func serveMain(args []string) error {
 	w.Albums = o.albums != "off"
 	w.Shares = o.shares == "on"
 	w.ShareMaxDays = o.shareMaxDays
+	w.ShareUsers = o.shareUsers == "on"
+	w.ShareGroups, _ = o.shareGroupList()
 	w.Status = o.status()
 	if o.oidcEnabled() {
 		w.OIDCLabel = o.oidcLabel
@@ -208,15 +210,26 @@ func (o *options) status() []web.StatusItem {
 		{Name: "Single sign-on", Value: onOff(o.oidcEnabled())},
 		{Name: "Photo albums", Value: onOff(o.albums != "off")},
 		{Name: "Share links", Value: onOff(o.shares == "on")},
+		{Name: "Sharing with people", Value: "off"},
 		{Name: "Virus scan of uploads", Value: onOff(o.scanCommand != "")},
 		{Name: "Largest upload", Value: "unlimited"},
 		{Name: "Certificates", Value: o.mode},
+	}
+	if g, _ := o.shareGroupList(); o.shareUsers == "on" || len(g) > 0 {
+		v := []string{}
+		if o.shareUsers == "on" {
+			v = append(v, "users")
+		}
+		if len(g) > 0 {
+			v = append(v, "groups: "+strings.Join(g, ", "))
+		}
+		items[5].Value = strings.Join(v, "; ")
 	}
 	if o.shares == "on" {
 		items[4].Value = fmt.Sprintf("on (at most %d days)", o.shareMaxDays)
 	}
 	if o.maxUpload > 0 {
-		items[6].Value = fmt.Sprintf("%d GiB", o.maxUpload>>30)
+		items[7].Value = fmt.Sprintf("%d GiB", o.maxUpload>>30)
 	}
 	return items
 }

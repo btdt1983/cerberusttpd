@@ -133,3 +133,41 @@ func TestAdminAccess(t *testing.T) {
 		t.Error("refused access not audited")
 	}
 }
+
+// Sharing with people and share links are separate switches.
+func TestSharingSwitches(t *testing.T) {
+	code := func(s *Server, method, target string) int {
+		return adminReq(s.Handler(""), method, target, "", "").Code
+	}
+	people := New(nil)
+	people.ShareUsers = true
+	if got := code(people, "GET", "/shared"); got != http.StatusSeeOther {
+		t.Errorf("people only: /shared is %d, want a redirect to the login", got)
+	}
+	if got := code(people, "GET", "/share?path=a"); got != http.StatusSeeOther {
+		t.Errorf("people only: /share is %d", got)
+	}
+	if got := code(people, "GET", "/shares"); got != http.StatusNotFound {
+		t.Errorf("people only: /shares is %d, want 404", got)
+	}
+	if got := code(people, "GET", "/s/x/get"); got != http.StatusNotFound {
+		t.Errorf("people only: a public link route exists (%d)", got)
+	}
+	links := New(nil)
+	links.Shares = true
+	if got := code(links, "GET", "/shared"); got != http.StatusNotFound {
+		t.Errorf("links only: /shared is %d, want 404", got)
+	}
+	if got := code(links, "GET", "/shares"); got != http.StatusSeeOther {
+		t.Errorf("links only: /shares is %d", got)
+	}
+	none := New(nil)
+	for _, p := range []string{"/share?path=a", "/shared", "/shares", "/s/x"} {
+		if got := code(none, "GET", p); got != http.StatusNotFound {
+			t.Errorf("nothing on: %s is %d, want 404", p, got)
+		}
+	}
+	if !people.Sharing() || !people.Internal() || links.Internal() || none.Sharing() {
+		t.Error("Sharing/Internal do not follow the settings")
+	}
+}

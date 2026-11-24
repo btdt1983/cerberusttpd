@@ -63,8 +63,43 @@ func (s *Server) shareForm(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.render(w, http.StatusOK, "shareform", map[string]any{"User": sess.User, "Admin": sess.Admin, "Path": rel, "Name": st.Name,
-		"Back": "/files/" + encodePath(parentDir(rel)), "TTLs": s.shareChoices(), "MaxDays": s.ShareMaxDays})
+	s.render(w, http.StatusOK, "shareform", s.shareFormData(sess, st.Name, rel, "", "", nil))
+}
+
+// shareFormData is the data for the page where a file is shared, by link and
+// with people. users/groups prefill the people form (or are read back from the
+// existing share when nil).
+func (s *Server) shareFormData(sess *Session, name, rel, errLinks, errPeople string, picked map[string]bool) map[string]any {
+	d := map[string]any{"User": sess.User, "Admin": sess.Admin, "Path": rel, "Name": name,
+		"Back": "/files/" + encodePath(parentDir(rel)), "Links": s.Shares, "People": s.Internal(),
+		"Error": errLinks, "PeopleError": errPeople, "TTLs": s.shareChoices(), "MaxDays": s.ShareMaxDays,
+		"ShareUsers": s.ShareUsers}
+	if s.Internal() {
+		var users []string
+		have := map[string]bool{}
+		var resp helper.Response
+		if _, err := s.helper.Call(helper.Request{Op: "acl_list", Grant: sess.Grant}, &resp); err == nil {
+			for _, p := range resp.People {
+				if p.Path == rel {
+					users = p.Users
+					for _, g := range p.Groups {
+						have[g] = true
+					}
+					d["Current"] = p.ID
+				}
+			}
+		}
+		if picked != nil {
+			have = picked
+		}
+		var gs []map[string]any
+		for _, g := range s.ShareGroups {
+			gs = append(gs, map[string]any{"Name": g, "On": have[g]})
+		}
+		d["Groups"] = gs
+		d["UserList"] = strings.Join(users, ", ")
+	}
+	return d
 }
 
 func (s *Server) shareCreate(w http.ResponseWriter, r *http.Request) {
@@ -79,8 +114,7 @@ func (s *Server) shareCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	again := func(msg string) {
-		s.render(w, http.StatusBadRequest, "shareform", map[string]any{"User": sess.User, "Admin": sess.Admin, "Path": rel, "Name": st.Name,
-			"Back": "/files/" + encodePath(parentDir(rel)), "TTLs": s.shareChoices(), "MaxDays": s.ShareMaxDays, "Error": msg})
+		s.render(w, http.StatusBadRequest, "shareform", s.shareFormData(sess, st.Name, rel, msg, "", nil))
 	}
 	ttl, err := strconv.ParseInt(r.PostForm.Get("ttl"), 10, 64)
 	if err != nil || ttl <= 0 || ttl > int64(s.ShareMaxDays)*86400 {

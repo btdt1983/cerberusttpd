@@ -258,6 +258,49 @@ for a link that does not work. They carry the share's id (`share=`), never the s
 the link as a password: whoever has it, and the password if you set one, can download the file.
 The second factor does not apply to a download through a link; that is the point of it.
 
+## Sharing with users and groups
+
+Off by default. Two settings:
+
+    share-users = on                 # users can name other users to share a file with
+    share-groups = finance, hr       # groups a file may be shared with (empty = none)
+
+A user opens **Share** next to a file, types user names and/or ticks groups, and presses
+Share. The recipients find the file under **Shared** and can download it, nothing else:
+read only, one file per record, and sharing the same file again replaces the earlier list.
+**Stop sharing** (on the same page or under Shared) ends it. This is separate from share
+links: either, both or neither can be on.
+
+- The recipient is always the user who is signed in. The root process looks up who is in a
+  group again at every download, so removing someone from a group takes effect on their next
+  click, with no sign-out needed. A group that is taken out of `share-groups` stops applying
+  at once.
+- The file is opened with the **owner's** rights at the moment of the download and follows the
+  path, not the file: replace the file and the recipients get the new one. If the file is gone
+  or the owner's account has expired or was removed, the share stops working.
+  (`usermod -L` alone does not, see "Share links".)
+- You can only name accounts that may sign in here (not root or system accounts) and not
+  yourself; one error covers a name that does not exist, is not allowed or is you. Groups must
+  be on the `share-groups` list. A group that is listed but cannot be found (for example sssd
+  is not ready yet at boot) is only logged as a warning.
+- Administrators see every record under **Admin → Shared with people** and can stop it.
+  Audit events: `people_share`, `people_stop`, `shared_open`, `admin_people_stop`.
+- Not included: folders, write access and expiry dates. For a folder the whole group works in,
+  use a shared root instead (below).
+
+### A folder for a group
+
+Without any setting above, a shared root with Unix rights already gives group folders. Set
+`root = /srv/share` (see the packaged config) and prepare the folders:
+
+    mkdir -p /srv/share/finance
+    chgrp finance /srv/share/finance
+    chmod 2770 /srv/share/finance        # the 2 (setgid) keeps new files in the group
+
+Everybody then sees the same tree and the kernel decides who may read or write what. Mind that
+`root` applies to **all** users and replaces their home directories, and the folder must exist
+or sign-in fails with the "no folder" message.
+
 ## Admin page
 
 Members of the `wheel` group see an **Admin** link in the header (`/admin`). It shows:
@@ -266,6 +309,8 @@ Members of the `wheel` group see an **Admin** link in the header (`/admin`). It 
   links, virus scan, upload limit, certificate mode). Read only: settings stay in the config file.
 - **Signed in now**: every session with its user, sign-in method, address, start time and idle
   time, and an **End session** button (not for your own session; use Sign out for that).
+- **Shared with people** (when sharing with users or groups is on): who shared which file with
+  whom, with **Stop sharing**.
 - **Share links** (when `shares = on`): every user's links with owner, file, status and downloads,
   and **Revoke**. Use it when someone leaves: `usermod -L` does not stop links.
 - **Recent events**: the last 2000 audit events since the service started, newest first, with a

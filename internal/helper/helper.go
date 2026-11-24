@@ -52,6 +52,8 @@ type Config struct {
 	ScanTimeout time.Duration
 	Shares      bool          // share links for people without an account
 	ShareMaxTTL time.Duration // longest a share link may live
+	ShareUsers  bool          // sharing files with chosen users
+	ShareGroups []string      // groups files may be shared with (empty: no group sharing)
 }
 
 type Request struct {
@@ -66,14 +68,17 @@ type Request struct {
 	Verifier string `json:"verifier,omitempty"` // oidc_begin, oidc_login: PKCE
 	AuthCode string `json:"authcode,omitempty"` // oidc_login: the authorization code from the provider
 
-	Grant   string `json:"grant,omitempty"`    // share_*: proof of the owner's login, see share.go
-	Path    string `json:"path,omitempty"`     // share_create: the file, relative to the owner's root
-	TTL     int64  `json:"ttl,omitempty"`      // share_create: lifetime in seconds
-	Max     int    `json:"max,omitempty"`      // share_create: download limit, 0 = none
-	All     bool   `json:"all,omitempty"`      // share_list, share_revoke: act on every user's shares (administrators only)
-	ShareID string `json:"share_id,omitempty"` // share_revoke
-	Token   string `json:"token,omitempty"`    // share_info, share_open: the secret from the link
-	Range   string `json:"range,omitempty"`    // share_open: the browser's Range header, to decide whether this request counts
+	Grant   string   `json:"grant,omitempty"`    // share_*: proof of the owner's login, see share.go
+	Path    string   `json:"path,omitempty"`     // share_create: the file, relative to the owner's root
+	TTL     int64    `json:"ttl,omitempty"`      // share_create: lifetime in seconds
+	Max     int      `json:"max,omitempty"`      // share_create: download limit, 0 = none
+	All     bool     `json:"all,omitempty"`      // share_list, share_revoke, acl_list: act on every user's shares (administrators only)
+	With    bool     `json:"with,omitempty"`     // acl_list: the files shared with me, not by me
+	Users   []string `json:"users,omitempty"`    // acl_set: the recipients
+	Groups  []string `json:"groups,omitempty"`   // acl_set: the recipient groups
+	ShareID string   `json:"share_id,omitempty"` // share_revoke
+	Token   string   `json:"token,omitempty"`    // share_info, share_open: the secret from the link
+	Range   string   `json:"range,omitempty"`    // share_open: the browser's Range header, to decide whether this request counts
 }
 
 type Response struct {
@@ -93,17 +98,19 @@ type Response struct {
 	URL      string   `json:"url,omitempty"` // oidc_begin: where the browser signs in
 	IdP      string   `json:"idp,omitempty"` // oidc_login: who the provider says it was (for the audit log)
 
-	Grant   string      `json:"grant,omitempty"`    // login: lets this user's session make share links
-	Token   string      `json:"token,omitempty"`    // share_create: the secret for the link, shown once
-	ShareID string      `json:"share_id,omitempty"` // share_*: public handle, safe for the audit log
-	Name    string      `json:"name,omitempty"`     // share_info, share_open: file name
-	Size    int64       `json:"size,omitempty"`
-	MTime   int64       `json:"mtime,omitempty"`
-	Expires time.Time   `json:"expires,omitempty"`
-	HasPW   bool        `json:"haspw,omitempty"`
-	Whole   bool        `json:"whole,omitempty"`  // share_open: serve the whole file, ignore Range (the link has a download limit)
-	Detail  string      `json:"detail,omitempty"` // share_*: why a share is unavailable, for the audit log only
-	Shares  []ShareInfo `json:"shares,omitempty"`
+	Grant   string       `json:"grant,omitempty"`    // login: lets this user's session make share links
+	Token   string       `json:"token,omitempty"`    // share_create: the secret for the link, shown once
+	ShareID string       `json:"share_id,omitempty"` // share_*: public handle, safe for the audit log
+	Name    string       `json:"name,omitempty"`     // share_info, share_open: file name
+	Size    int64        `json:"size,omitempty"`
+	MTime   int64        `json:"mtime,omitempty"`
+	Expires time.Time    `json:"expires,omitempty"`
+	HasPW   bool         `json:"haspw,omitempty"`
+	Whole   bool         `json:"whole,omitempty"`  // share_open: serve the whole file, ignore Range (the link has a download limit)
+	Detail  string       `json:"detail,omitempty"` // share_*: why a share is unavailable, for the audit log only
+	Shares  []ShareInfo  `json:"shares,omitempty"`
+	People  []PeopleInfo `json:"people,omitempty"` // acl_list
+	Owner   string       `json:"owner,omitempty"`  // acl_open: whose file it is
 }
 
 // pending is a user who passed PAM but not yet the second factor. It lives only
@@ -127,6 +134,7 @@ type server struct {
 	seen    map[string]time.Time // last login per user, for the upload cleanup
 
 	shares     *shareStore
+	acl        *aclStore
 	grants     map[string]grant // by token hash
 	shareSem   chan struct{}    // caps the workers anonymous downloads may start at once
 	shareLimit *limiter.Login
@@ -138,10 +146,16 @@ func Serve(f *os.File, cfg Config) error {
 	if cfg.OIDC != nil {
 		s.oidc = newOIDCClient(*cfg.OIDC)
 	}
-	if cfg.Shares {
+	if s.sharingOn() {
 		s.shares = loadShares(cfg.DataDir)
+		s.acl = loadACL(cfg.DataDir)
 		s.shareSem = make(chan struct{}, 4)
 		s.shareLimit = limiter.NewLogin()
+		for _, g := range cfg.ShareGroups {
+			if _, err := user.LookupGroup(g); err != nil {
+				log.Printf("helper: share-groups: group %q not found (yet): %v", g, err)
+			}
+		}
 	}
 	go s.janitor()
 	return ipc.Serve(f, func(raw json.RawMessage) (any, []*os.File) {
@@ -168,6 +182,14 @@ func Serve(f *os.File, cfg Config) error {
 			return s.shareList(req), nil
 		case "share_revoke":
 			return s.shareRevoke(req), nil
+		case "acl_set":
+			return s.aclSet(req), nil
+		case "acl_list":
+			return s.aclList(req), nil
+		case "acl_stop":
+			return s.aclStop(req), nil
+		case "acl_open":
+			return s.aclOpen(req)
 		case "share_info":
 			return s.shareInfo(req), nil
 		case "share_open":
@@ -336,9 +358,7 @@ func (s *server) complete(u *user.User, host string) (Response, []*os.File) {
 	s.noteSeen(u.Username)
 	log.Printf("helper: login ok user=%q uid=%d admin=%v rhost=%s", u.Username, cred.Uid, admin, host)
 	resp := Response{OK: true, User: u.Username, UID: cred.Uid, Admin: admin}
-	if s.Shares {
-		resp.Grant = s.newGrant(u.Username, admin)
-	}
+	resp.Grant = s.newGrant(u.Username, admin)
 	return resp, []*os.File{sock}
 }
 

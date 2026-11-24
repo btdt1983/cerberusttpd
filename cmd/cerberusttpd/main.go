@@ -17,7 +17,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/btdt1983/cerberusttpd/internal/helper"
 )
 
 func main() {
@@ -51,7 +54,7 @@ var version = "dev"
 
 type options struct {
 	addr, root, data, mode, names, domains, email, svcUser, pamService, twoFA, config string
-	dnsProvider, dnsCreds, acmeCA, acmeHTTP, albums, shares                           string
+	dnsProvider, dnsCreds, acmeCA, acmeHTTP, albums, shares, shareUsers, shareGroups  string
 	oidcIssuer, oidcClientID, oidcSecretFile, oidcUsers, oidcRedirect, oidcLabel      string
 	scanCommand                                                                       string
 	scanTimeout                                                                       time.Duration
@@ -80,6 +83,8 @@ func (o *options) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.twoFA, "2fa", "required", "two-factor login: required (everyone enrols a TOTP app) or off")
 	fs.StringVar(&o.albums, "albums", "on", "photo albums (masonry gallery, lightbox, album editor, thumbnails): on or off")
 	fs.StringVar(&o.shares, "shares", "off", "share links for people without an account (one file, expiry, optional password and download limit): on or off")
+	fs.StringVar(&o.shareUsers, "share-users", "off", "let users share files with chosen other users (read only): on or off")
+	fs.StringVar(&o.shareGroups, "share-groups", "", "groups users may share files with, comma separated (empty = no sharing with groups)")
 	fs.IntVar(&o.shareMaxDays, "share-max-days", 30, "the longest a share link may stay valid, in days")
 	fs.StringVar(&o.oidcIssuer, "oidc-issuer", "", "single sign-on: the provider, for Microsoft https://login.microsoftonline.com/<tenant-id>/v2.0")
 	fs.StringVar(&o.oidcClientID, "oidc-client-id", "", "single sign-on: application (client) ID")
@@ -100,7 +105,7 @@ func (o *options) args() []string {
 		"-names", o.names, "-domain", o.domains, "-acme-email", o.email,
 		"-dns-provider", o.dnsProvider, "-acme-ca", o.acmeCA, "-acme-http-addr", o.acmeHTTP,
 		"-user", o.svcUser, "-pam-service", o.pamService, "-min-uid", fmt.Sprint(o.minUID),
-		"-2fa", o.twoFA, "-albums", o.albums, "-scan-command", o.scanCommand, "-shares", o.shares, "-share-max-days", fmt.Sprint(o.shareMaxDays), "-oidc-issuer", o.oidcIssuer, "-oidc-label", o.oidcLabel, "-max-upload", fmt.Sprint(o.maxUpload), "-stale-after", o.staleAfter.String(),
+		"-2fa", o.twoFA, "-albums", o.albums, "-scan-command", o.scanCommand, "-shares", o.shares, "-share-users", o.shareUsers, "-share-groups", o.shareGroups, "-share-max-days", fmt.Sprint(o.shareMaxDays), "-oidc-issuer", o.oidcIssuer, "-oidc-label", o.oidcLabel, "-max-upload", fmt.Sprint(o.maxUpload), "-stale-after", o.staleAfter.String(),
 	}
 }
 
@@ -122,6 +127,12 @@ func (o *options) resolve(fs *flag.FlagSet) error {
 	if o.shares != "on" && o.shares != "off" {
 		return fmt.Errorf("shares must be on or off (it is %q)", o.shares)
 	}
+	if o.shareUsers != "on" && o.shareUsers != "off" {
+		return fmt.Errorf("share-users must be on or off (it is %q)", o.shareUsers)
+	}
+	if _, err := o.shareGroupList(); err != nil {
+		return err
+	}
 	if o.shareMaxDays < 1 || o.shareMaxDays > 3650 {
 		return fmt.Errorf("share-max-days must be between 1 and 3650 (it is %d)", o.shareMaxDays)
 	}
@@ -135,4 +146,21 @@ func (o *options) resolve(fs *flag.FlagSet) error {
 		o.addr = ":443"
 	}
 	return nil
+}
+
+// shareGroupList parses share-groups: names of groups, comma separated.
+func (o *options) shareGroupList() ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	for _, g := range strings.Split(o.shareGroups, ",") {
+		if g = strings.TrimSpace(g); g == "" || seen[g] {
+			continue
+		}
+		if !helper.ValidUser(g) {
+			return nil, fmt.Errorf("share-groups: %q is not a valid group name", g)
+		}
+		seen[g] = true
+		out = append(out, g)
+	}
+	return out, nil
 }

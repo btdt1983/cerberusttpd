@@ -255,3 +255,47 @@ func TestStatusAndScanForwarding(t *testing.T) {
 		t.Errorf("status: %v", got)
 	}
 }
+
+func TestShareUsersAndGroups(t *testing.T) {
+	resolve := func(conf string) (options, error) {
+		var o options
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		o.register(fs)
+		if conf != "" {
+			if err := applyConfig(fs, write(t, conf)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return o, o.resolve(fs)
+	}
+	if o, err := resolve(""); err != nil || o.shareUsers != "off" || o.shareGroups != "" {
+		t.Errorf("default: %+v %v", o, err)
+	}
+	o, err := resolve("share-users = on\nshare-groups = finance, hr ,finance\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g, _ := o.shareGroupList(); len(g) != 2 || g[0] != "finance" || g[1] != "hr" {
+		t.Errorf("groups: %v", g)
+	}
+	got := map[string]string{}
+	a := o.args()
+	for i := 0; i+1 < len(a); i++ {
+		got[a[i]] = a[i+1]
+	}
+	if got["-share-users"] != "on" || got["-share-groups"] != "finance, hr ,finance" {
+		t.Errorf("not passed on: %v", got)
+	}
+	for _, bad := range []string{"share-users = yes\n", "share-groups = fin ance\n", "share-groups = -x\n"} {
+		if _, err := resolve(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	status := map[string]string{}
+	for _, it := range o.status() {
+		status[it.Name] = it.Value
+	}
+	if status["Sharing with people"] != "users; groups: finance, hr" {
+		t.Errorf("status: %q", status["Sharing with people"])
+	}
+}

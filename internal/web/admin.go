@@ -73,6 +73,19 @@ func (s *Server) adminPage(w http.ResponseWriter, r *http.Request) {
 		}
 		data["Shares"] = rows
 	}
+	if s.Internal() {
+		var resp helper.Response
+		if _, err := s.helper.Call(helper.Request{Op: "acl_list", Grant: sess.Grant, All: true}, &resp); err != nil || resp.Err != "" {
+			s.fail(w, "internal")
+			return
+		}
+		var rows []sharedRow
+		for _, p := range resp.People {
+			rows = append(rows, sharedRow{ID: p.ID, Owner: p.Owner, Path: p.Path, With: with(p), Created: p.Created.Local()})
+		}
+		data["People"] = rows
+		data["PeopleOn"] = true
+	}
 	s.render(w, http.StatusOK, "admin", data)
 }
 
