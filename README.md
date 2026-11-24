@@ -219,6 +219,45 @@ for an emergency. The way out is on the server: set `password-login = on` in the
 restart the service (and `chage`, SSH and the console are unaffected). Two-factor (`2fa`) only
 applies to password sign-in.
 
+### Keeping the users file up to date
+
+Where the account name does not follow the user name, or for exceptions, the users file lists
+`identity = account` lines. For many entries do not edit it by hand: generate it from your own
+source (an export from the directory, an HR list) and replace it in one step. The packaged
+`/usr/share/doc/cerberusttpd/make-oidc-users` (also in `contrib/`) does that:
+
+    make-oidc-users people.csv /etc/cerberusttpd/oidc-users
+
+`people.csv` is `identity,account` per line, where the identity is a user name or
+`oid:<object id>` (the stable key: prefer it when you have it) and the account `-` refuses the
+person:
+
+    jan.jansen@example.com,jjansen
+    oid:3f2a9c1e-0000-0000-0000-000000000000,piet.pieters@example.com
+    ex.employee@example.com,-
+
+The script is meant to run as root from a job or from configuration management. It checks every
+line (valid account names, no duplicates, no empty list), writes a temporary file next to the target
+and moves it into place, so a mistake changes nothing and a reader never sees half a file; the
+result is owned by root and mode 0600. The service reads the file at every sign-in, so there is no
+restart. Run it again when people join or leave.
+
+The Linux accounts themselves come from your directory (sssd) and are not made by this service. For
+the people allowed to use it, use a group in the directory as `login-group`: sssd resolves the
+membership, so adding or removing someone in the directory is all it takes. Both belong in your
+automation, for example (an Ansible sketch; it was not run as part of the tests of this project):
+
+    - name: oidc-users from the HR export
+      ansible.builtin.copy:
+        src: people.csv
+        dest: /etc/cerberusttpd/people.csv
+        owner: root
+        mode: "0600"
+      register: people
+    - name: rebuild the mapping when the list changed
+      ansible.builtin.command: /usr/share/doc/cerberusttpd/make-oidc-users /etc/cerberusttpd/people.csv /etc/cerberusttpd/oidc-users
+      when: people.changed
+
 ### Good to know
 
 - **Skips TOTP.** A Microsoft sign-in does not ask for the cerberusttpd authenticator code,
@@ -254,14 +293,75 @@ Security-relevant events are written to the journal, one line each, with `msg=au
     event=login user=jan ip=192.0.2.7 auth=password+totp result=ok
     event=download user=jan ip=192.0.2.7 auth=password+totp result=ok path=docs/report.pdf size=48211 range=""
 
-Fields: `event`, `user` (the typed name on a failed login), `ip`, `auth` (`password` or
-`password+totp`), `result` (`ok`, or why not: `denied`, `throttled`, `forbidden`, `exists`, ...)
-and event details such as `path`. Logged: sign-in (success, failure, throttled, second
-factor), sign-out, downloads (a `range` marks a partial read), uploads, new folders, renames
-(`to`), deletes, refused access, and album changes. Not logged: directory listings,
-thumbnails and the live sidebar. Values are quoted, so a file name with a newline cannot
-forge a line. Passwords, codes and session tokens never appear. The journal is the place to
-keep it safe: forward it to a log server if the host itself is not trusted.
+Passwords, codes, session tokens and the secrets of share links never appear. Every value is
+quoted or escaped, so a file name or user name with a newline or a quote cannot forge a second
+line. The journal is where to keep it safe; send it to a log server if the host itself is not
+trusted (see "Sending the audit log to a central server" below).
+
+**Format.** `audit-format = text` (the default) gives the `key=value` lines above. `audit-format =
+json` writes one JSON object per line, for log platforms that would otherwise have to parse
+`key=value`:
+
+    {"time":"2026-11-24T10:00:01.2-05:00","level":"INFO","msg":"audit","event":"download","user":"jan","ip":"192.0.2.7","auth":"password+totp","result":"ok","path":"docs/report.pdf","size":48211,"range":""}
+
+Both carry the same fields. A restart is needed to change the format.
+
+**Fields.**
+
+| Field | Meaning |
+| --- | --- |
+| `time`, `level` | When it happened and `INFO`. |
+| `msg` | Always `audit`: this is what separates these lines from the service's other messages. |
+| `event` | What happened, see below. |
+| `user` | Who: the Linux account; for a failed sign-in the name that was typed; empty for an anonymous share link. |
+| `ip` | The address the request came from. Behind a reverse proxy that is the proxy's address. |
+| `auth` | How the person proved who they are: `password`, `password+totp`, `oidc`, or `share` (a link). |
+| `result` | `ok`, or why not (`denied`, `throttled`, `forbidden`, `notfound`, `infected`, `scanfail`, `nospace`, `nohome`, `unmapped`, `mismatch`, `disabled`, `expired`, `exhausted`, ...). |
+| others | Details of the event: `path`, `size`, `range`, `to`, `share`, `target`, `idp_user`, `signature`, `why`. |
+
+**Events.** `login` (also `mfa` for the second factor, `logout`), `download` (a `range` marks a
+partial read), `access` (refused access to a file), `upload` and `upload_cancel`, `mkdir`, `rename`
+(`to`), `delete`, `album_create` and `album_save`, `share_create`, `share_revoke`, `share_open`
+and `share_view` (share links), `people_share`, `people_stop` and `shared_open` (sharing with users
+and groups), and the administrators' `admin` (refused), `admin_session_end`, `admin_share_revoke`
+and `admin_people_stop`. Not logged: directory listings, thumbnails and the live sidebar. Events
+that happen only inside the root process (for example a pin refusing someone) also leave a line in
+the journal without `msg=audit`; the `result=` of the matching `login` line is what to alert on.
+
+### Sending the audit log to a central server
+
+The lines are on the host's journal; a shipper has to pick them up. Three ways, from the simplest.
+
+1. **Read them directly.** Every audit line, newest last, without the journal's own fields:
+
+        journalctl -u cerberusttpd -o cat | grep ' msg=audit '                       # text format
+        journalctl -u cerberusttpd -o cat -f | jq -R -c 'fromjson? | select(.msg=="audit")'   # json format
+
+   and, for example, what was refused:
+   `... | jq -R -c 'fromjson? | select(.msg=="audit" and .result!="ok")'`.
+
+2. **rsyslog** forwards the journal to a syslog server over TCP with TLS. The packaged example
+   `/usr/share/doc/cerberusttpd/30-cerberusttpd-audit.conf.example` passes only the audit lines (both
+   formats, and nothing else of the service's output), keeps them in a disk queue while the server is
+   away, and encrypts the connection:
+
+        cp /usr/share/doc/cerberusttpd/30-cerberusttpd-audit.conf.example /etc/rsyslog.d/30-cerberusttpd-audit.conf
+        # edit the target and the permitted peer name, install rsyslog-gnutls, then
+        rsyslogd -N1 && systemctl restart rsyslog
+
+   `rsyslogd -N1` checks the syntax; the filter was tried with both formats.
+
+3. **Another shipper** (Filebeat, Vector, Fluent Bit, the Splunk or Elastic agents): read the systemd
+   journal for the unit `cerberusttpd.service`, keep only messages that contain `msg=audit`
+   (text) or `"msg":"audit"` (json) and, with `audit-format = json`, parse the message as JSON. The
+   JSON format is the easiest for these: the fields arrive ready to use.
+
+Whichever way, think about: **TLS** to the server (the trail names who downloaded what);
+**time** (the lines carry the host's local time with its offset: keep the clocks right);
+**buffering**, so a gap in the network does not lose events; **retention** that matches your policy;
+and **alerts** on at least `result=mismatch`, a burst of `result=denied` or `throttled`, `event=admin*`,
+and `event=share_create`/`share_open` if links are allowed. The Admin page keeps only the last 2000
+events in memory and is not a log.
 
 ## Share links (files for people without an account)
 
@@ -650,13 +750,16 @@ Microsoft sign-in and Active Directory through sssd):
 5. **Sharing.** Decide: share links off (`shares = off`, the default), or on with a short
    `share-max-days` and `share-require-password = on`; sharing with users and groups with
    `share-users` and a list of `share-groups`. A link is a way in without an account.
-6. **Leavers.** Expire the account (`chage -E 0 <user>`; `usermod -L` alone is not enough), end
+6. **Keeping lists current.** Generate `oidc-users` from your source with `make-oidc-users`, and keep
+   the accounts and `login-group` in step with the directory (see "Keeping the users file up to
+   date").
+   **Leavers.** Expire the account (`chage -E 0 <user>`; `usermod -L` alone is not enough), end
    their session and revoke their links on the Admin page, and remove them from `oidc-users` and
    from the pins file.
-7. **Logging.** Send the audit lines to your log platform / SIEM, for example with journald
-   forwarding: `journalctl -u cerberusttpd -o json -f | grep '"MESSAGE":"time=.*msg=audit'` into
-   your shipper, or rsyslog's `imjournal` filtered on `SYSLOG_IDENTIFIER=cerberusttpd` and the text
-   `msg=audit`. The Admin page keeps only the last 2000 events in memory.
+7. **Logging.** Set `audit-format = json` and send the audit lines to your log platform / SIEM (see
+   "Sending the audit log to a central server": an rsyslog example is packaged), with alerts on
+   `result=mismatch`, bursts of `denied`/`throttled`, and `admin*` events. The Admin page keeps
+   only the last 2000 events in memory.
 8. **Virus scan sizing.** `clamd` holds about 1.2 GB; give the host room, and see "Virus scanning"
    for the limits that make large files pass unscanned and for `scan-timeout`.
 9. **Network.** HTTP/3 is UDP on the same port as HTTPS. Behind a firewall, NAT or load balancer,

@@ -4,6 +4,7 @@
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -189,5 +190,36 @@ func TestPasswordLoginOffInTheWeb(t *testing.T) {
 	on := New(nil)
 	if p := adminReq(on.Handler(""), "GET", "/login", "", ""); !strings.Contains(p.Body.String(), `name="password"`) {
 		t.Error("the password form is missing by default")
+	}
+}
+
+func TestAuditFormats(t *testing.T) {
+	evil := "a\nb \"quoted\" msg=audit event=login result=ok"
+	for _, format := range []string{"text", "json"} {
+		var buf strings.Builder
+		s := New(nil)
+		s.Audit = auditLogger(&buf, format)
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = "192.0.2.7:1234"
+		s.auditAs(r, evil, "password", "login", "denied", "path", evil)
+		s.auditAs(r, "jan", "password+totp", "download", "ok", "path", "docs/a.pdf", "size", 12)
+		lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+		if len(lines) != 2 {
+			t.Fatalf("%s: %d lines for 2 events (a value forged a line?):\n%s", format, len(lines), buf.String())
+		}
+		if format == "json" {
+			var e struct {
+				Msg, Event, User, IP, Auth, Result, Path string
+				Size                                     int
+			}
+			if err := json.Unmarshal([]byte(lines[0]), &e); err != nil || e.Msg != "audit" || e.Event != "login" || e.User != evil || e.IP != "192.0.2.7" || e.Result != "denied" || e.Path != evil {
+				t.Errorf("json line 1: %v %+v", err, e)
+			}
+			if err := json.Unmarshal([]byte(lines[1]), &e); err != nil || e.Event != "download" || e.Size != 12 || e.Auth != "password+totp" {
+				t.Errorf("json line 2: %v %+v", err, e)
+			}
+		} else if !strings.Contains(lines[1], "msg=audit event=download user=jan ip=192.0.2.7 auth=password+totp result=ok path=docs/a.pdf size=12") {
+			t.Errorf("text line: %s", lines[1])
+		}
 	}
 }

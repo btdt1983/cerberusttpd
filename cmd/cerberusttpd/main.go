@@ -55,13 +55,13 @@ func main() {
 var version = "dev"
 
 type options struct {
-	addr, root, data, mode, names, domains, email, svcUser, pamService, twoFA, config                  string
-	dnsProvider, dnsCreds, acmeCA, acmeHTTP, albums, shares, shareUsers, shareGroups                   string
-	passwordLogin, shareRequirePW, adminGroup, loginGroup, oidcAutoDomains, createHome, createHomeBase string
-	oidcIssuer, oidcClientID, oidcSecretFile, oidcUsers, oidcRedirect, oidcLabel                       string
-	scanCommand                                                                                        string
-	scanTimeout                                                                                        time.Duration
-	shareMaxDays                                                                                       int
+	addr, root, data, mode, names, domains, email, svcUser, pamService, twoFA, config                               string
+	dnsProvider, dnsCreds, acmeCA, acmeHTTP, albums, shares, shareUsers, shareGroups                                string
+	passwordLogin, shareRequirePW, adminGroup, loginGroup, oidcAutoDomains, createHome, createHomeBase, auditFormat string
+	oidcIssuer, oidcClientID, oidcSecretFile, oidcUsers, oidcRedirect, oidcLabel                                    string
+	scanCommand                                                                                                     string
+	scanTimeout                                                                                                     time.Duration
+	shareMaxDays                                                                                                    int
 
 	minUID     uint
 	maxUpload  int64
@@ -93,6 +93,7 @@ func (o *options) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.adminGroup, "admin-group", "wheel", "members of this group are administrators (admin page); empty = nobody")
 	fs.StringVar(&o.loginGroup, "login-group", "", "when set, only members of this group may sign in (password, single sign-on, and as recipient or owner of shares)")
 	fs.StringVar(&o.oidcAutoDomains, "oidc-auto-domains", "", "single sign-on: sign in people who are not in the users file as the account named like their user name (jan@example.com), for these domains, comma separated")
+	fs.StringVar(&o.auditFormat, "audit-format", "text", "format of the audit lines in the journal: text (key=value) or json (one object per line)")
 	fs.StringVar(&o.createHome, "create-home", "off", "make a missing home directory at the first sign-in (skeleton, SELinux labels): on or off")
 	fs.StringVar(&o.createHomeBase, "create-home-base", "/home", "create-home only creates homes below this directory")
 	fs.IntVar(&o.shareMaxDays, "share-max-days", 30, "the longest a share link may stay valid, in days")
@@ -115,7 +116,7 @@ func (o *options) args() []string {
 		"-names", o.names, "-domain", o.domains, "-acme-email", o.email,
 		"-dns-provider", o.dnsProvider, "-acme-ca", o.acmeCA, "-acme-http-addr", o.acmeHTTP,
 		"-user", o.svcUser, "-pam-service", o.pamService, "-min-uid", fmt.Sprint(o.minUID),
-		"-2fa", o.twoFA, "-albums", o.albums, "-scan-command", o.scanCommand, "-password-login", o.passwordLogin, "-share-require-password", o.shareRequirePW, "-admin-group", o.adminGroup, "-login-group", o.loginGroup, "-oidc-auto-domains", o.oidcAutoDomains, "-create-home", o.createHome, "-create-home-base", o.createHomeBase, "-shares", o.shares, "-share-users", o.shareUsers, "-share-groups", o.shareGroups, "-share-max-days", fmt.Sprint(o.shareMaxDays), "-oidc-issuer", o.oidcIssuer, "-oidc-label", o.oidcLabel, "-max-upload", fmt.Sprint(o.maxUpload), "-stale-after", o.staleAfter.String(),
+		"-2fa", o.twoFA, "-albums", o.albums, "-scan-command", o.scanCommand, "-password-login", o.passwordLogin, "-share-require-password", o.shareRequirePW, "-admin-group", o.adminGroup, "-login-group", o.loginGroup, "-oidc-auto-domains", o.oidcAutoDomains, "-audit-format", o.auditFormat, "-create-home", o.createHome, "-create-home-base", o.createHomeBase, "-shares", o.shares, "-share-users", o.shareUsers, "-share-groups", o.shareGroups, "-share-max-days", fmt.Sprint(o.shareMaxDays), "-oidc-issuer", o.oidcIssuer, "-oidc-label", o.oidcLabel, "-max-upload", fmt.Sprint(o.maxUpload), "-stale-after", o.staleAfter.String(),
 	}
 }
 
@@ -152,6 +153,9 @@ func (o *options) resolve(fs *flag.FlagSet) error {
 		if v != "" && !helper.ValidUser(v) {
 			return fmt.Errorf("%s: %q is not a valid group name", name, v)
 		}
+	}
+	if o.auditFormat != "text" && o.auditFormat != "json" {
+		return fmt.Errorf("audit-format must be text or json (it is %q)", o.auditFormat)
 	}
 	if o.passwordLogin == "off" && !o.oidcEnabled() {
 		return errors.New("password-login = off needs single sign-on (oidc-*), otherwise nobody could sign in")

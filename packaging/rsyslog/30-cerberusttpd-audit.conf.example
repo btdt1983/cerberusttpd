@@ -1,0 +1,26 @@
+# Forward the audit lines of Cerberusttpd to a central log server with rsyslog.
+# Copy to /etc/rsyslog.d/30-cerberusttpd-audit.conf, change the target, then:
+#   rsyslogd -N1 && systemctl restart rsyslog
+#
+# The service writes every audit event as one line to the journal, either as
+# key=value (audit-format = text, the default) or as JSON (audit-format = json). imjournal
+# hands those lines to rsyslog; the filter below passes only the audit lines, in either format.
+
+module(load="imjournal" StateFile="imjournal.state")   # skip this line if rsyslog already loads it
+
+# One line per event, with the host name in front so the server knows where it came from.
+template(name="CerberusttpdAudit" type="string"
+         string="<%PRI%>%TIMESTAMP:::date-rfc3339% %HOSTNAME% cerberusttpd: %msg%\n")
+
+if ($programname == "cerberusttpd" and ($msg contains "msg=audit" or $msg contains "\"msg\":\"audit\"")) then {
+    action(type="omfwd" target="logs.example.org" port="6514" protocol="tcp"
+           template="CerberusttpdAudit"
+           # TLS to the log server (dnf install rsyslog-gnutls); without these four lines the audit
+           # trail would cross the network in clear text:
+           StreamDriver="gtls" StreamDriverMode="1" StreamDriverAuthMode="x509/name"
+           StreamDriverPermittedPeers="logs.example.org"
+           # Keep events while the server is away instead of dropping them:
+           action.resumeRetryCount="-1"
+           queue.type="LinkedList" queue.filename="cerberusttpd_audit" queue.maxDiskSpace="1g"
+           queue.saveOnShutdown="on")
+}

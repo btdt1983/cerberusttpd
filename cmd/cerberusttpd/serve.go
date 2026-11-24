@@ -57,6 +57,7 @@ func serveMain(args []string) error {
 	w.ShareUsers = o.shareUsers == "on"
 	w.ShareGroups, _ = o.shareGroupList()
 	w.Status = o.status()
+	w.Audit = web.NewAuditLogger(o.auditFormat)
 	w.PasswordLogin = o.passwordLogin == "on"
 	w.ShareRequirePW = o.shareRequirePW == "on"
 	if o.oidcEnabled() {

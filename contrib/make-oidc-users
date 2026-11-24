@@ -1,0 +1,63 @@
+#!/bin/bash
+# Copyright (C) 2026 David Bauer
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Builds the single sign-on mapping file (oidc-users) from a list, so that it can be kept
+# up to date by a job or by configuration management instead of by hand.
+#
+#   make-oidc-users people.csv /etc/cerberusttpd/oidc-users
+#
+# people.csv has one person per line: identity,account
+#
+#   jan.jansen@example.com,jjansen        # a user name (case does not matter)
+#   oid:3f2a9c1e-0000-0000-0000-000000000000,piet@example.com   # an object id: the stable key
+#   ex.employee@example.com,-             # "-" refuses this person even with automatic mapping
+#
+# Empty lines and lines starting with # are skipped; so is a trailing comment after the
+# account (separated by whitespace). The result replaces the target in one step (the service reads the file
+# at every sign-in, so no restart is needed) and is owned by root and not readable by others, which is what the
+# service demands. Run it as root. Nothing is changed when any line is wrong.
+set -euo pipefail
+
+if [ "$#" -ne 2 ]; then
+	echo "usage: $0 people.csv /etc/cerberusttpd/oidc-users" >&2
+	exit 2
+fi
+src=$1
+dst=$2
+[ "$(id -u)" -eq 0 ] || { echo "$0: run as root: the file must belong to root" >&2; exit 1; }
+[ -r "$src" ] || { echo "$0: cannot read $src" >&2; exit 1; }
+
+dir=$(dirname "$dst")
+tmp=$(mktemp "$dir/.oidc-users.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+
+awk -F, '
+	function bad(msg) { printf "%s:%d: %s\n", FILENAME, NR, msg > "/dev/stderr"; failed = 1 }
+	{
+		sub(/\r$/, "")
+		line = $0
+		if (line ~ /^[ \t]*(#|$)/) next
+		n = split(line, f, ",")
+		if (n != 2) { bad("need exactly identity,account"); next }
+		id = f[1]; acct = f[2]
+		gsub(/^[ \t]+|[ \t]+$/, "", id)
+		sub(/[ \t]+#.*$/, "", acct)
+		gsub(/^[ \t]+|[ \t]+$/, "", acct)
+		if (id == "" || id ~ /[=#[:space:]]/) { bad("identity \"" id "\" is empty or has a space, = or #"); next }
+		if (acct != "-" && acct !~ /^[A-Za-z0-9_@][A-Za-z0-9._@-]*$/) { bad("account \"" acct "\" is not a valid user name"); next }
+		if (acct ~ /^[0-9]+$/) { bad("account \"" acct "\" is only digits"); next }
+		key = tolower(id)
+		if (key in seen) { bad("\"" id "\" is listed twice (first on line " seen[key] ")"); next }
+		seen[key] = NR
+		print id " = " acct
+		count++
+	}
+	END { if (failed) exit 1; if (!count) { print FILENAME ": no people in the list: refusing to empty the mapping" > "/dev/stderr"; exit 1 } }
+' "$src" > "$tmp"
+
+chown root:root "$tmp"
+chmod 0600 "$tmp"
+mv -f "$tmp" "$dst"
+trap - EXIT
+echo "$dst: $(wc -l < "$dst") entries"

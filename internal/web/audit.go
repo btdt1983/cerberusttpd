@@ -5,6 +5,7 @@ package web
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -87,8 +88,18 @@ func detailText(attrs []any) string {
 // stderr, which systemd sends to the journal. Find them with msg=audit.
 // slog quotes and escapes every value, so a file name or a user name that
 // contains a newline or a quote cannot forge a second line.
-func newAudit() *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.Stderr, nil))
+func newAudit() *slog.Logger { return NewAuditLogger("text") }
+
+// NewAuditLogger is the audit sink for a format: "text" (key=value, the default)
+// or "json" (one JSON object per line, for log platforms that would otherwise
+// have to parse key=value). Both keep escaping every value.
+func NewAuditLogger(format string) *slog.Logger { return auditLogger(os.Stderr, format) }
+
+func auditLogger(w io.Writer, format string) *slog.Logger {
+	if format == "json" {
+		return slog.New(slog.NewJSONHandler(w, nil))
+	}
+	return slog.New(slog.NewTextHandler(w, nil))
 }
 
 // outcome is the result field for a worker answer: ok or its error code.

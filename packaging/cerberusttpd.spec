@@ -57,4 +57,6 @@ install -d -m 700 /var/lib/cerberusttpd
 /usr/lib/firewalld/services/cerberusttpd.xml
 %doc %{_docdir}/cerberusttpd/README.md
 %doc %{_docdir}/cerberusttpd/cerberusttpd.sssd.example
+%doc %{_docdir}/cerberusttpd/30-cerberusttpd-audit.conf.example
+%doc %{_docdir}/cerberusttpd/make-oidc-users
 %license %{_licensedir}/cerberusttpd/LICENSE

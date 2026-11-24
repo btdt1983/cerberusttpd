@@ -361,3 +361,35 @@ func TestOrganisationSettings(t *testing.T) {
 		t.Errorf("status: %v", status)
 	}
 }
+
+func TestAuditFormatSetting(t *testing.T) {
+	resolve := func(conf string) (options, error) {
+		var o options
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		o.register(fs)
+		if conf != "" {
+			if err := applyConfig(fs, write(t, conf)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return o, o.resolve(fs)
+	}
+	if o, err := resolve(""); err != nil || o.auditFormat != "text" {
+		t.Errorf("default: %q %v", o.auditFormat, err)
+	}
+	o, err := resolve("audit-format = json\n")
+	if err != nil || o.auditFormat != "json" {
+		t.Fatalf("json: %q %v", o.auditFormat, err)
+	}
+	got := map[string]string{}
+	a := o.args()
+	for i := 0; i+1 < len(a); i++ {
+		got[a[i]] = a[i+1]
+	}
+	if got["-audit-format"] != "json" {
+		t.Errorf("not passed on: %v", got)
+	}
+	if _, err := resolve("audit-format = xml\n"); err == nil {
+		t.Error("audit-format = xml accepted")
+	}
+}

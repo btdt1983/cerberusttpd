@@ -26,6 +26,8 @@ stage:
 	install -m 644 packaging/firewalld/cerberusttpd.xml $(DESTDIR)/usr/lib/firewalld/services/cerberusttpd.xml
 	install -m 644 README.md $(DESTDIR)/usr/share/doc/cerberusttpd/README.md
 	install -m 644 packaging/pam.d/cerberusttpd.sssd.example $(DESTDIR)/usr/share/doc/cerberusttpd/cerberusttpd.sssd.example
+	install -m 644 packaging/rsyslog/30-cerberusttpd-audit.conf.example $(DESTDIR)/usr/share/doc/cerberusttpd/30-cerberusttpd-audit.conf.example
+	install -m 755 contrib/make-oidc-users $(DESTDIR)/usr/share/doc/cerberusttpd/make-oidc-users
 	install -m 644 LICENSE $(DESTDIR)/usr/share/licenses/cerberusttpd/LICENSE
 
 # Install on this machine (the RPM does the same through its scriptlets).
