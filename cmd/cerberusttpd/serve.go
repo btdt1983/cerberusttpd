@@ -54,6 +54,7 @@ func serveMain(args []string) error {
 	w.Albums = o.albums != "off"
 	w.Shares = o.shares == "on"
 	w.ShareMaxDays = o.shareMaxDays
+	w.Status = o.status()
 	if o.oidcEnabled() {
 		w.OIDCLabel = o.oidcLabel
 	}
@@ -190,4 +191,32 @@ func serveMain(args []string) error {
 		return err
 	}
 	select {} // the shutdown goroutine exits the process
+}
+
+// status is what the admin page shows about the settings: switches and
+// limits, never secrets, paths or the scan command itself.
+func (o *options) status() []web.StatusItem {
+	onOff := func(on bool) string {
+		if on {
+			return "on"
+		}
+		return "off"
+	}
+	items := []web.StatusItem{
+		{Name: "Version", Value: version},
+		{Name: "Two-factor login", Value: map[bool]string{true: "required", false: "off"}[o.twoFA == "required"]},
+		{Name: "Single sign-on", Value: onOff(o.oidcEnabled())},
+		{Name: "Photo albums", Value: onOff(o.albums != "off")},
+		{Name: "Share links", Value: onOff(o.shares == "on")},
+		{Name: "Virus scan of uploads", Value: onOff(o.scanCommand != "")},
+		{Name: "Largest upload", Value: "unlimited"},
+		{Name: "Certificates", Value: o.mode},
+	}
+	if o.shares == "on" {
+		items[4].Value = fmt.Sprintf("on (at most %d days)", o.shareMaxDays)
+	}
+	if o.maxUpload > 0 {
+		items[6].Value = fmt.Sprintf("%d GiB", o.maxUpload>>30)
+	}
+	return items
 }

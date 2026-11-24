@@ -35,6 +35,7 @@ type Session struct {
 	User    string
 	UID     uint32
 	Admin   bool
+	IP      string // where the sign-in came from (for the admin page)
 	Grant   string // the helper's proof of this login, needed to make share links
 	Auth    string // how the user proved who they are: password, password+totp (for the audit log)
 	Stage   Stage
@@ -194,4 +195,59 @@ func (ss *sessions) presence(now time.Time) []userStat {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
+}
+
+// sessionID names a session without revealing its token: the first bytes of
+// the hash the table is keyed by.
+func sessionID(k [32]byte) string { return hex8(k) }
+
+func hex8(k [32]byte) string {
+	const digits = "0123456789abcdef"
+	var b [16]byte
+	for i := 0; i < 8; i++ {
+		b[2*i], b[2*i+1] = digits[k[i]>>4], digits[k[i]&15]
+	}
+	return string(b[:])
+}
+
+type sessionRow struct {
+	ID, User, Auth, IP string
+	Admin, Mine        bool
+	Created            time.Time
+	Idle               time.Duration
+}
+
+// list returns the signed-in sessions, oldest first. mine marks the caller's own.
+func (ss *sessions) list(now time.Time, mine string) []sessionRow {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+	var out []sessionRow
+	for k, s := range ss.m {
+		if s.Stage < StageFull || expired(s, now) {
+			continue
+		}
+		id := sessionID(k)
+		out = append(out, sessionRow{ID: id, User: s.User, Auth: s.Auth, IP: s.IP, Admin: s.Admin, Mine: id == mine, Created: s.Created, Idle: now.Sub(s.seen).Round(time.Second)})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Created.Before(out[j].Created) })
+	return out
+}
+
+// kill ends the session with this id and says who it belonged to.
+func (ss *sessions) kill(id string) (string, bool) {
+	ss.mu.Lock()
+	var gone *Session
+	for k, s := range ss.m {
+		if sessionID(k) == id {
+			gone = s
+			delete(ss.m, k)
+			break
+		}
+	}
+	ss.mu.Unlock()
+	if gone == nil {
+		return "", false
+	}
+	gone.close()
+	return gone.User, true
 }

@@ -258,6 +258,26 @@ for a link that does not work. They carry the share's id (`share=`), never the s
 the link as a password: whoever has it, and the password if you set one, can download the file.
 The second factor does not apply to a download through a link; that is the point of it.
 
+## Admin page
+
+Members of the `wheel` group see an **Admin** link in the header (`/admin`). It shows:
+
+- **Settings**: the version and which features are on (two-factor, single sign-on, albums, share
+  links, virus scan, upload limit, certificate mode). Read only: settings stay in the config file.
+- **Signed in now**: every session with its user, sign-in method, address, start time and idle
+  time, and an **End session** button (not for your own session; use Sign out for that).
+- **Share links** (when `shares = on`): every user's links with owner, file, status and downloads,
+  and **Revoke**. Use it when someone leaves: `usermod -L` does not stop links.
+- **Recent events**: the last 2000 audit events since the service started, newest first, with a
+  filter on user, event and result. They are only a quick look: the journal has everything
+  (see "Audit log").
+
+An administrator sees who shared what and who is signed in, never the contents of files. Whether
+someone is an administrator is decided by the root process when they sign in; the network process
+cannot claim it. Revoking another user's link is refused by the root process unless the sign-in
+was an administrator's. Ending a session, revoking a link and refused access are audited
+(`admin_session_end`, `admin_share_revoke`, `admin` with result `forbidden`).
+
 ## Virus scanning of uploads
 
 Optional. Set `scan-command` and every finished upload is scanned before it gets its real

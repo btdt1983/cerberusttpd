@@ -133,9 +133,32 @@ const pages = `
 </div></body></html>{{end}}
 {{define "sharegone"}}{{template "head" "Link not available"}}
 <div class="login card"><h2>This link does not work</h2><p>It has expired, been withdrawn or used up. Ask the person who sent it for a new one.</p></div></body></html>{{end}}
+{{define "admin"}}{{template "head" "Admin"}}
+<header><b>Cerberusttpd</b><form method="post" action="/logout"><a href="/files/">Files</a> &nbsp; <span class="mut">{{.User}} · admin</span> &nbsp; <button class="link" type="submit">Sign out</button></form></header>
+<main class="wide">
+{{if eq .Done "share"}}<p role="status">The share link no longer works.</p>{{end}}{{if eq .Done "session"}}<p role="status">The session has ended.</p>{{end}}
+<div class="card"><h2>Settings</h2><dl class="facts">{{range .Status}}<dt>{{.Name}}</dt><dd>{{.Value}}</dd>{{end}}</dl>
+<p class="mut small">Settings live in the config file; change them there and restart the service.</p></div>
+<div class="card"><h2>Signed in now ({{len .Sessions}})</h2>
+{{if .Sessions}}<table><thead><tr><th>User</th><th>Sign-in</th><th>From</th><th class="n">Since</th><th class="n">Idle</th><th class="n"></th></tr></thead><tbody>
+{{range .Sessions}}<tr><td class="nm">{{.User}}{{if .Admin}} <span class="mut small">admin</span>{{end}}{{if .Mine}} <span class="mut small">you</span>{{end}}</td><td>{{.Auth}}</td><td>{{.IP}}</td><td class="n">{{.Created.Format "15:04"}}</td><td class="n">{{.Idle}}</td>
+<td class="n act">{{if not .Mine}}<form class="inl" method="post" action="/admin/kill"><input type="hidden" name="id" value="{{.ID}}"><button class="link" type="submit">End session</button></form>{{end}}</td></tr>{{end}}
+</tbody></table>{{else}}<p class="mut">Nobody is signed in.</p>{{end}}</div>
+{{if .ShareOn}}<div class="card"><h2>Share links</h2>
+{{if .Shares}}<table><thead><tr><th>Owner</th><th>File</th><th>Status</th><th class="n">Downloads</th><th class="n mt">Valid until</th><th class="n"></th></tr></thead><tbody>
+{{range .Shares}}<tr><td>{{.Owner}}</td><td class="nm">{{.Path}}{{if .HasPW}} <span class="mut small">password</span>{{end}}</td><td>{{.State}}</td><td class="n">{{.Uses}}</td><td class="n mt">{{.Expires.Format "2006-01-02 15:04"}}</td>
+<td class="n act"><form class="inl" method="post" action="/admin/revoke"><input type="hidden" name="id" value="{{.ID}}"><button class="link" type="submit">{{if .Live}}Revoke{{else}}Remove{{end}}</button></form></td></tr>{{end}}
+</tbody></table>{{else}}<p class="mut">There are no share links.</p>{{end}}</div>{{end}}
+<div class="card"><h2>Recent events</h2>
+<form class="inline" method="get" action="/admin"><input name="user" value="{{.FUser}}" placeholder="User" aria-label="User" maxlength="128"><input name="event" value="{{.FEvent}}" placeholder="Event (login, download, share_open…)" aria-label="Event" maxlength="40"><input name="result" value="{{.FResult}}" placeholder="Result (ok, denied…)" aria-label="Result" maxlength="40"><button type="submit">Filter</button></form>
+{{if .Events}}<table><thead><tr><th>Time</th><th>Event</th><th>User</th><th>From</th><th>Result</th><th>Details</th></tr></thead><tbody>
+{{range .Events}}<tr><td>{{.Time.Format "01-02 15:04:05"}}</td><td>{{.Event}}</td><td>{{.User}}</td><td>{{.IP}}</td><td>{{.Result}}</td><td class="mut small">{{.Detail}}</td></tr>{{end}}
+</tbody></table><p class="mut small">The last {{.Shown}} matching events since the service started. The journal has everything: <code>journalctl -u cerberusttpd | grep msg=audit</code></p>
+{{else}}<p class="mut">No events match.</p>{{end}}</div>
+</main></body></html>{{end}}
 {{define "sprite"}}<svg class="sprite" aria-hidden="true" focusable="false"><symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h3.9c.5 0 1 .2 1.3.6L12 6h6.5A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></symbol><symbol id="i-file" viewBox="0 0 24 24"><path d="M7 3h6.5L19 8.5V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path class="ln" d="M13 3v6h6"/></symbol><symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle class="cut" cx="9" cy="10" r="1.6"/><path class="cut" d="M5 18l4.5-4.5 3 3 2.5-2.5L20 18.5z"/></symbol><symbol id="i-archive" viewBox="0 0 24 24"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path class="cut" d="M11 5h2v2h-2zm0 3h2v2h-2zm0 3h2v2h-2zm-1 3h4v3a2 2 0 0 1-4 0z"/></symbol><symbol id="i-media" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path class="cut" d="M10 9l5 3-5 3z"/></symbol><symbol id="i-dl" viewBox="0 0 24 24"><path class="ln" d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></symbol></svg>{{end}}
 {{define "browse"}}{{template "head" .Title}}
-<header><b>Cerberusttpd</b><form method="post" action="/logout">{{if .Shares}}<a href="/shares">Share links</a> &nbsp; {{end}}<span class="mut">{{.User}}{{if .Admin}} · admin{{end}}</span> &nbsp; <button class="link" type="submit">Sign out</button></form></header>
+<header><b>Cerberusttpd</b><form method="post" action="/logout">{{if .Shares}}<a href="/shares">Share links</a> &nbsp; {{end}}{{if .Admin}}<a href="/admin">Admin</a> &nbsp; {{end}}<span class="mut">{{.User}}{{if .Admin}} · admin{{end}}</span> &nbsp; <button class="link" type="submit">Sign out</button></form></header>
 <div class="layout">{{template "sprite"}}<main data-dir="{{.Dir}}">
 {{if .Writable}}<div class="card up"><label class="drop" id="drop"><input id="pick" type="file" multiple hidden>Drag files here or <u>choose files</u> to upload</label>
 <ul id="uploads"></ul>

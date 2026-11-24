@@ -100,7 +100,7 @@ func (o *options) args() []string {
 		"-names", o.names, "-domain", o.domains, "-acme-email", o.email,
 		"-dns-provider", o.dnsProvider, "-acme-ca", o.acmeCA, "-acme-http-addr", o.acmeHTTP,
 		"-user", o.svcUser, "-pam-service", o.pamService, "-min-uid", fmt.Sprint(o.minUID),
-		"-2fa", o.twoFA, "-albums", o.albums, "-shares", o.shares, "-share-max-days", fmt.Sprint(o.shareMaxDays), "-oidc-issuer", o.oidcIssuer, "-oidc-label", o.oidcLabel, "-max-upload", fmt.Sprint(o.maxUpload), "-stale-after", o.staleAfter.String(),
+		"-2fa", o.twoFA, "-albums", o.albums, "-scan-command", o.scanCommand, "-shares", o.shares, "-share-max-days", fmt.Sprint(o.shareMaxDays), "-oidc-issuer", o.oidcIssuer, "-oidc-label", o.oidcLabel, "-max-upload", fmt.Sprint(o.maxUpload), "-stale-after", o.staleAfter.String(),
 	}
 }
 

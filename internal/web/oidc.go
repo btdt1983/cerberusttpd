@@ -185,7 +185,7 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	token, err := s.sess.create(&Session{User: resp.User, UID: resp.UID, Admin: resp.Admin, Grant: resp.Grant, Auth: "oidc", Stage: StageFull, worker: wc})
+	token, err := s.sess.create(&Session{User: resp.User, UID: resp.UID, Admin: resp.Admin, IP: clientIP(r), Grant: resp.Grant, Auth: "oidc", Stage: StageFull, worker: wc})
 	if err != nil {
 		wc.Close()
 		http.Error(w, "internal error", http.StatusInternalServerError)

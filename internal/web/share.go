@@ -120,11 +120,11 @@ func (s *Server) shareCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 type shareRow struct {
-	ID, Path, State string
-	Created         time.Time
-	Expires         time.Time
-	Uses            string
-	HasPW, Live     bool
+	ID, Owner, Path, State string
+	Created                time.Time
+	Expires                time.Time
+	Uses                   string
+	HasPW, Live            bool
 }
 
 func (s *Server) shareList(w http.ResponseWriter, r *http.Request) {

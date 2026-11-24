@@ -228,3 +228,30 @@ func TestSharesSetting(t *testing.T) {
 		t.Errorf("not passed on to the network process: %v", got)
 	}
 }
+
+func TestStatusAndScanForwarding(t *testing.T) {
+	var o options
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	o.register(fs)
+	fs.Parse([]string{"-shares", "on", "-scan-command", "/usr/bin/clamscan --no-summary", "-2fa", "off"})
+	a := o.args()
+	forwarded := false
+	for i := 0; i+1 < len(a); i++ {
+		if a[i] == "-scan-command" && a[i+1] == "/usr/bin/clamscan --no-summary" {
+			forwarded = true
+		}
+	}
+	if !forwarded {
+		t.Error("scan-command is not passed on to the network process")
+	}
+	got := map[string]string{}
+	for _, it := range o.status() {
+		got[it.Name] = it.Value
+		if strings.Contains(it.Value, "clamscan") {
+			t.Errorf("status leaks the scan command: %q", it.Value)
+		}
+	}
+	if got["Share links"] != "on (at most 30 days)" || got["Virus scan of uploads"] != "on" || got["Two-factor login"] != "off" || got["Photo albums"] != "on" {
+		t.Errorf("status: %v", got)
+	}
+}

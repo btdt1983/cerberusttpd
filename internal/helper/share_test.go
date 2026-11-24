@@ -23,7 +23,7 @@ func testServer(t *testing.T) *server {
 
 func TestShareLifecycle(t *testing.T) {
 	s := testServer(t)
-	jan, piet := s.newGrant("jan"), s.newGrant("piet")
+	jan, piet := s.newGrant("jan", false), s.newGrant("piet", false)
 
 	if r := s.shareCreate(Request{Grant: "nope", Path: "a.txt", TTL: 60}); r.Err != "denied" {
 		t.Fatalf("bad grant: %q", r.Err)
@@ -81,7 +81,7 @@ func TestShareLifecycle(t *testing.T) {
 
 func TestShareOffAndLimits(t *testing.T) {
 	s := testServer(t)
-	g := s.newGrant("jan")
+	g := s.newGrant("jan", false)
 	for i := 0; i < shareMaxPerUser; i++ {
 		if r := s.shareCreate(Request{Grant: g, Path: "a.txt", TTL: 60}); r.Err != "" {
 			t.Fatalf("create %d: %q", i, r.Err)
@@ -115,7 +115,7 @@ func TestShareUsableAndPurge(t *testing.T) {
 	}
 
 	s := testServer(t)
-	g := s.newGrant("jan")
+	g := s.newGrant("jan", false)
 	a := s.shareCreate(Request{Grant: g, Path: "a", TTL: 60})
 	s.shares.byToken(a.Token).Expires = now.Add(-2 * shareKeepAfter)
 	b := s.shareCreate(Request{Grant: g, Path: "b", TTL: 60})
@@ -127,7 +127,7 @@ func TestShareUsableAndPurge(t *testing.T) {
 
 func TestGrantExpires(t *testing.T) {
 	s := testServer(t)
-	g := s.newGrant("jan")
+	g := s.newGrant("jan", false)
 	if u, ok := s.grantUser(g); !ok || u != "jan" {
 		t.Fatal("grant not accepted")
 	}
@@ -163,5 +163,37 @@ func TestCountsAsDownload(t *testing.T) {
 		if got := countsAsDownload(c.max, c.rng); got != c.want {
 			t.Errorf("max=%d range=%q: %v, want %v", c.max, c.rng, got, c.want)
 		}
+	}
+}
+
+func TestShareAdmin(t *testing.T) {
+	s := testServer(t)
+	jan, root := s.newGrant("jan", false), s.newGrant("beheer", true)
+	made := s.shareCreate(Request{Grant: jan, Path: "a.txt", TTL: 60})
+	if made.Err != "" {
+		t.Fatal(made.Err)
+	}
+	// Asking for everything needs an administrator's grant, not just a flag.
+	if r := s.shareList(Request{Grant: jan, All: true}); r.Err != "denied" {
+		t.Errorf("user listed all shares: %+v", r)
+	}
+	if r := s.shareRevoke(Request{Grant: jan, All: true, ShareID: made.ShareID}); r.Err != "denied" {
+		t.Errorf("user revoked with all: %+v", r)
+	}
+	if l := s.shareList(Request{Grant: root}); len(l.Shares) != 0 {
+		t.Errorf("admin's own list shows others: %+v", l.Shares)
+	}
+	l := s.shareList(Request{Grant: root, All: true})
+	if !l.OK || len(l.Shares) != 1 || l.Shares[0].Owner != "jan" {
+		t.Fatalf("admin list: %+v", l)
+	}
+	if r := s.shareRevoke(Request{Grant: root, ShareID: made.ShareID}); r.Err != "notfound" {
+		t.Errorf("admin revoked another's share without all: %+v", r)
+	}
+	if r := s.shareRevoke(Request{Grant: root, All: true, ShareID: made.ShareID}); !r.OK {
+		t.Errorf("admin revoke: %+v", r)
+	}
+	if in := s.shareInfo(Request{Token: made.Token}); in.Err != "unavailable" {
+		t.Error("revoked share still works")
 	}
 }

@@ -44,7 +44,9 @@ type Server struct {
 	Shares       bool         // share links for people without an account
 	ShareMaxDays int          // longest a share link may live
 	Audit        *slog.Logger // security-relevant events, see audit.go
-	OIDCLabel    string       // non-empty turns single sign-on on; the name on the button
+	Status       []StatusItem // settings the admin page shows
+	ring         *auditRing
+	OIDCLabel    string // non-empty turns single sign-on on; the name on the button
 	tpl          *template.Template
 }
 
@@ -58,6 +60,7 @@ func New(h *ipc.Client) *Server {
 		limit:    limiter.NewLogin(),
 		tpl:      newTemplates(),
 		Audit:    newAudit(),
+		ring:     newRing(),
 	}
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -97,6 +100,9 @@ func (s *Server) Handler(altSvc string) http.Handler {
 		mux.HandleFunc("GET /album/edit", s.albumEditPage)
 		mux.HandleFunc("POST /album/edit", s.albumEditDo)
 	}
+	mux.HandleFunc("GET /admin", s.adminPage)
+	mux.HandleFunc("POST /admin/revoke", s.adminRevoke)
+	mux.HandleFunc("POST /admin/kill", s.adminKill)
 	if s.Shares {
 		mux.HandleFunc("GET /share", s.shareForm)
 		mux.HandleFunc("POST /share", s.shareCreate)
@@ -225,7 +231,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Fresh token per login prevents session fixation.
-	token, err := s.sess.create(&Session{User: resp.User, UID: resp.UID, Admin: resp.Admin, Grant: resp.Grant, Auth: "password", Stage: StageFull, worker: wc})
+	token, err := s.sess.create(&Session{User: resp.User, UID: resp.UID, Admin: resp.Admin, IP: clientIP(r), Grant: resp.Grant, Auth: "password", Stage: StageFull, worker: wc})
 	if err != nil {
 		wc.Close()
 		http.Error(w, "internal error", http.StatusInternalServerError)

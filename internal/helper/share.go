@@ -62,6 +62,7 @@ type shareRec struct {
 // ShareInfo is what an owner sees about one of their shares.
 type ShareInfo struct {
 	ID      string    `json:"id"`
+	Owner   string    `json:"owner,omitempty"` // only in the administrators' list
 	Path    string    `json:"path"`
 	Created time.Time `json:"created"`
 	Expires time.Time `json:"expires"`
@@ -143,10 +144,11 @@ func (st *shareStore) byToken(token string) *shareRec {
 // user signed in. It expires with the longest web session.
 type grant struct {
 	user    string
+	admin   bool // decided by the helper at login (wheel), never by the network process
 	expires time.Time
 }
 
-func (s *server) newGrant(user string) string {
+func (s *server) newGrant(user string, admin bool) string {
 	var raw [32]byte
 	rand.Read(raw[:])
 	tok := base64.RawURLEncoding.EncodeToString(raw[:])
@@ -154,7 +156,7 @@ func (s *server) newGrant(user string) string {
 	if s.grants == nil {
 		s.grants = map[string]grant{}
 	}
-	s.grants[tokenHash(tok)] = grant{user: user, expires: time.Now().Add(grantLife)}
+	s.grants[tokenHash(tok)] = grant{user: user, admin: admin, expires: time.Now().Add(grantLife)}
 	s.mu.Unlock()
 	return tok
 }
@@ -171,6 +173,20 @@ func (s *server) grantUser(tok string) (string, bool) {
 		return "", false
 	}
 	return g.user, true
+}
+
+// grantAdmin returns the user and whether the login that made the grant is an administrator.
+func (s *server) grantAdmin(tok string) (string, bool, bool) {
+	if tok == "" || len(tok) > tokenMax {
+		return "", false, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g, ok := s.grants[tokenHash(tok)]
+	if !ok || time.Now().After(g.expires) {
+		return "", false, false
+	}
+	return g.user, g.admin, true
 }
 
 func (s *server) dropGrant(tok string) {
@@ -247,8 +263,8 @@ func (s *server) shareList(req Request) Response {
 	if !s.Shares {
 		return Response{Err: "disabled"}
 	}
-	owner, ok := s.grantUser(req.Grant)
-	if !ok {
+	owner, admin, ok := s.grantAdmin(req.Grant)
+	if !ok || (req.All && !admin) {
 		return Response{Err: "denied"}
 	}
 	st := s.shares
@@ -256,8 +272,8 @@ func (s *server) shareList(req Request) Response {
 	defer st.mu.Unlock()
 	var out []ShareInfo
 	for _, r := range st.m {
-		if r.Owner == owner {
-			out = append(out, ShareInfo{ID: r.ID, Path: r.Path, Created: r.Created, Expires: r.Expires, Max: r.Max, Used: r.Used, HasPW: r.PW != ""})
+		if r.Owner == owner || req.All {
+			out = append(out, ShareInfo{ID: r.ID, Owner: r.Owner, Path: r.Path, Created: r.Created, Expires: r.Expires, Max: r.Max, Used: r.Used, HasPW: r.PW != ""})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Created.After(out[j].Created) })
@@ -268,22 +284,22 @@ func (s *server) shareRevoke(req Request) Response {
 	if !s.Shares {
 		return Response{Err: "disabled"}
 	}
-	owner, ok := s.grantUser(req.Grant)
-	if !ok {
+	owner, admin, ok := s.grantAdmin(req.Grant)
+	if !ok || (req.All && !admin) {
 		return Response{Err: "denied"}
 	}
 	st := s.shares
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	for h, r := range st.m {
-		if r.ID == req.ShareID && r.Owner == owner {
+		if r.ID == req.ShareID && (r.Owner == owner || req.All) {
 			delete(st.m, h)
 			if err := st.saveLocked(); err != nil {
 				st.m[h] = r
 				log.Printf("helper: save shares: %v", err)
 				return Response{Err: "internal"}
 			}
-			log.Printf("helper: share revoked id=%s owner=%q", r.ID, owner)
+			log.Printf("helper: share revoked id=%s owner=%q by=%q", r.ID, r.Owner, owner)
 			return Response{OK: true, ShareID: r.ID}
 		}
 	}

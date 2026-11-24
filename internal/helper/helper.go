@@ -70,6 +70,7 @@ type Request struct {
 	Path    string `json:"path,omitempty"`     // share_create: the file, relative to the owner's root
 	TTL     int64  `json:"ttl,omitempty"`      // share_create: lifetime in seconds
 	Max     int    `json:"max,omitempty"`      // share_create: download limit, 0 = none
+	All     bool   `json:"all,omitempty"`      // share_list, share_revoke: act on every user's shares (administrators only)
 	ShareID string `json:"share_id,omitempty"` // share_revoke
 	Token   string `json:"token,omitempty"`    // share_info, share_open: the secret from the link
 	Range   string `json:"range,omitempty"`    // share_open: the browser's Range header, to decide whether this request counts
@@ -336,7 +337,7 @@ func (s *server) complete(u *user.User, host string) (Response, []*os.File) {
 	log.Printf("helper: login ok user=%q uid=%d admin=%v rhost=%s", u.Username, cred.Uid, admin, host)
 	resp := Response{OK: true, User: u.Username, UID: cred.Uid, Admin: admin}
 	if s.Shares {
-		resp.Grant = s.newGrant(u.Username)
+		resp.Grant = s.newGrant(u.Username, admin)
 	}
 	return resp, []*os.File{sock}
 }
