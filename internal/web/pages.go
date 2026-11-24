@@ -95,9 +95,47 @@ const pages = `
 {{else}}<p class="mut">There are no pictures in this folder yet.</p>{{end}}
 <p><button type="submit">Save</button> &nbsp; <a href="{{.Back}}">Cancel</a> &nbsp; <a class="mut" href="{{.RemoveURL}}">Remove album</a></p>
 </form></div></main><script src="/static/albumedit.js"></script></body></html>{{end}}
+{{define "shareform"}}{{template "head" "Share a file"}}
+<header><b>Cerberusttpd</b><span class="mut">{{.User}}{{if .Admin}} · admin{{end}}</span></header>
+<main><div class="card"><h2>Share a file</h2>
+<p class="mut">{{.Path}}</p>
+<p>Anyone who has the link can download this file, without an account, until the link expires. Send it only to the people who should have it.</p>
+<form method="post" action="/share"><input type="hidden" name="path" value="{{.Path}}">
+<label for="ttl">Valid for</label><select id="ttl" name="ttl">{{range .TTLs}}<option value="{{.Seconds}}"{{if .Default}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+<label for="password">Password (optional)</label><input id="password" name="password" type="password" autocomplete="new-password" maxlength="64">
+<label for="max">Download limit (optional)</label><input id="max" name="max" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="no limit">
+{{if .Error}}<p class="err" role="alert">{{.Error}}</p>{{end}}
+<button type="submit">Create link</button> &nbsp; <a href="{{.Back}}">Cancel</a></form>
+</div></main></body></html>{{end}}
+{{define "sharedone"}}{{template "head" "Share link"}}
+<header><b>Cerberusttpd</b><span class="mut">{{.User}}{{if .Admin}} · admin{{end}}</span></header>
+<main><div class="card"><h2>Your link for {{.Name}}</h2>
+<p>Copy it now: it is shown only once and cannot be looked up later.</p>
+<p><code>{{.Link}}</code></p>
+<p class="mut">Valid until {{.Expires}}{{if .Max}} · at most {{.Max}} {{if eq .Max 1}}download{{else}}downloads{{end}}{{end}}{{if .HasPW}} · protected by a password (send that separately){{end}}.</p>
+<p><a href="/shares">All my share links</a> &nbsp; <a href="{{.Back}}">Back to the folder</a></p>
+</div></main></body></html>{{end}}
+{{define "shares"}}{{template "head" "Share links"}}
+<header><b>Cerberusttpd</b><span class="mut">{{.User}}{{if .Admin}} · admin{{end}}</span></header>
+<main><div class="card"><h2>Share links</h2>
+{{if .Revoked}}<p role="status">The link no longer works.</p>{{end}}
+{{if .Rows}}<table><thead><tr><th>File</th><th>Status</th><th class="n">Downloads</th><th class="n mt">Valid until</th><th class="n"></th></tr></thead><tbody>
+{{range .Rows}}<tr><td class="nm">{{.Path}}{{if .HasPW}} <span class="mut small">password</span>{{end}}</td><td>{{.State}}</td><td class="n">{{.Uses}}</td><td class="n mt">{{.Expires.Format "2006-01-02 15:04"}}</td>
+<td class="n act"><form class="inl" method="post" action="/share/revoke"><input type="hidden" name="id" value="{{.ID}}"><button class="link" type="submit">{{if .Live}}Revoke{{else}}Remove{{end}}</button></form></td></tr>{{end}}
+</tbody></table>{{else}}<p class="mut">You have not shared anything.</p>{{end}}
+<p><a href="/files/">Back to the files</a></p></div></main></body></html>{{end}}
+{{define "sharepage"}}{{template "head" "Download"}}
+<div class="login card">{{if .Name}}<h2>{{.Name}}</h2><p class="mut">This link works until {{.Expires}}.</p>{{else}}<h2>Password needed</h2>{{end}}
+{{if .HasPW}}<form method="post" action="{{.Get}}">
+<label for="password">Password</label><input id="password" name="password" type="password" autocomplete="off" maxlength="64" required autofocus>
+{{if .Error}}<p class="err" role="alert">{{.Error}}</p>{{end}}
+<button type="submit">Download</button></form>{{else}}<p><a href="{{.Get}}">Download</a></p>{{end}}
+</div></body></html>{{end}}
+{{define "sharegone"}}{{template "head" "Link not available"}}
+<div class="login card"><h2>This link does not work</h2><p>It has expired, been withdrawn or used up. Ask the person who sent it for a new one.</p></div></body></html>{{end}}
 {{define "sprite"}}<svg class="sprite" aria-hidden="true" focusable="false"><symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6.5A2.5 2.5 0 0 1 5.5 4h3.9c.5 0 1 .2 1.3.6L12 6h6.5A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z"/></symbol><symbol id="i-file" viewBox="0 0 24 24"><path d="M7 3h6.5L19 8.5V19a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path class="ln" d="M13 3v6h6"/></symbol><symbol id="i-image" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle class="cut" cx="9" cy="10" r="1.6"/><path class="cut" d="M5 18l4.5-4.5 3 3 2.5-2.5L20 18.5z"/></symbol><symbol id="i-archive" viewBox="0 0 24 24"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path class="cut" d="M11 5h2v2h-2zm0 3h2v2h-2zm0 3h2v2h-2zm-1 3h4v3a2 2 0 0 1-4 0z"/></symbol><symbol id="i-media" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path class="cut" d="M10 9l5 3-5 3z"/></symbol><symbol id="i-dl" viewBox="0 0 24 24"><path class="ln" d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></symbol></svg>{{end}}
 {{define "browse"}}{{template "head" .Title}}
-<header><b>Cerberusttpd</b><form method="post" action="/logout"><span class="mut">{{.User}}{{if .Admin}} · admin{{end}}</span> &nbsp; <button class="link" type="submit">Sign out</button></form></header>
+<header><b>Cerberusttpd</b><form method="post" action="/logout">{{if .Shares}}<a href="/shares">Share links</a> &nbsp; {{end}}<span class="mut">{{.User}}{{if .Admin}} · admin{{end}}</span> &nbsp; <button class="link" type="submit">Sign out</button></form></header>
 <div class="layout">{{template "sprite"}}<main data-dir="{{.Dir}}">
 {{if .Writable}}<div class="card up"><label class="drop" id="drop"><input id="pick" type="file" multiple hidden>Drag files here or <u>choose files</u> to upload</label>
 <ul id="uploads"></ul>
@@ -108,7 +146,7 @@ const pages = `
 <input type="search" id="filter" class="filter" placeholder="Filter by name…" aria-label="Filter by name" autocomplete="off">
 {{if .Writable}}<form method="get" action="/delete" id="sel">{{end}}<table><thead><tr>{{if .Writable}}<th class="chkcol"><input type="checkbox" id="all" aria-label="Select all"></th>{{end}}<th>Name</th><th class="n">Size</th><th class="n mt">Modified</th>{{if .Writable}}<th class="n"></th>{{end}}</tr></thead><tbody>
 {{if not .Root}}<tr>{{if .Writable}}<td></td>{{end}}<td class="nm"><svg class="ico folder"><use href="#i-folder"/></svg><a href="../">..</a></td><td></td><td class="mt"></td>{{if .Writable}}<td></td>{{end}}</tr>{{end}}
-{{range .Rows}}<tr>{{if $.Writable}}<td class="chkcol"><input type="checkbox" name="path" value="{{.Full}}" aria-label="Select {{.Name}}"></td>{{end}}<td class="nm">{{if .Cover}}<img class="cov" src="{{.Cover}}" width="36" height="36" loading="lazy" alt="">{{else}}<svg class="ico {{.Icon}}"><use href="#i-{{if .Album}}image{{else}}{{.Icon}}{{end}}"/></svg>{{end}}<a href="{{.Href}}">{{.Name}}</a>{{if .Album}} <span class="mut small">album</span>{{end}}</td><td class="n">{{if not .Dir}}{{size .Size}} <a class="dl" href="{{.Download}}" title="Download" aria-label="Download {{.Name}}"><svg class="ico sm"><use href="#i-dl"/></svg></a>{{end}}</td><td class="n mt">{{.MTime.Format "2006-01-02 15:04"}}</td>{{if $.Writable}}<td class="n act"><a href="{{.Rename}}">Rename</a> <a href="{{.Delete}}">Delete</a></td>{{end}}</tr>
+{{range .Rows}}<tr>{{if $.Writable}}<td class="chkcol"><input type="checkbox" name="path" value="{{.Full}}" aria-label="Select {{.Name}}"></td>{{end}}<td class="nm">{{if .Cover}}<img class="cov" src="{{.Cover}}" width="36" height="36" loading="lazy" alt="">{{else}}<svg class="ico {{.Icon}}"><use href="#i-{{if .Album}}image{{else}}{{.Icon}}{{end}}"/></svg>{{end}}<a href="{{.Href}}">{{.Name}}</a>{{if .Album}} <span class="mut small">album</span>{{end}}</td><td class="n">{{if not .Dir}}{{size .Size}}{{if $.Shares}} <a class="dl" href="{{.Share}}" title="Share" aria-label="Share {{.Name}}">Share</a>{{end}} <a class="dl" href="{{.Download}}" title="Download" aria-label="Download {{.Name}}"><svg class="ico sm"><use href="#i-dl"/></svg></a>{{end}}</td><td class="n mt">{{.MTime.Format "2006-01-02 15:04"}}</td>{{if $.Writable}}<td class="n act"><a href="{{.Rename}}">Rename</a> <a href="{{.Delete}}">Delete</a></td>{{end}}</tr>
 {{else}}<tr><td colspan="5" class="mut">This folder is empty.</td></tr>{{end}}
 </tbody></table>{{if .Writable}}<p><button class="danger" type="submit" id="delsel" disabled>Delete selected</button></p></form>{{end}}{{if .Cut}}<p class="mut">List truncated.</p>{{end}}</div></main>
 <aside id="side" aria-label="Server status">

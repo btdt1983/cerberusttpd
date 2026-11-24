@@ -30,20 +30,22 @@ import (
 var staticFS embed.FS
 
 type Server struct {
-	helper    *ipc.Client
-	sess      *sessions
-	flows     *oidcFlows
-	loginSem  chan struct{}
-	limit     *limiter.Login
-	stats     stats
-	done      chan struct{} // closed on shutdown so live streams end
-	doneOnce  sync.Once
-	CAPEM     []byte       // public root certificate, served for trust setup
-	MaxUpload int64        // bytes; 0 means unlimited
-	Albums    bool         // photo albums: gallery, editor and thumbnails
-	Audit     *slog.Logger // security-relevant events, see audit.go
-	OIDCLabel string       // non-empty turns single sign-on on; the name on the button
-	tpl       *template.Template
+	helper       *ipc.Client
+	sess         *sessions
+	flows        *oidcFlows
+	loginSem     chan struct{}
+	limit        *limiter.Login
+	stats        stats
+	done         chan struct{} // closed on shutdown so live streams end
+	doneOnce     sync.Once
+	CAPEM        []byte       // public root certificate, served for trust setup
+	MaxUpload    int64        // bytes; 0 means unlimited
+	Albums       bool         // photo albums: gallery, editor and thumbnails
+	Shares       bool         // share links for people without an account
+	ShareMaxDays int          // longest a share link may live
+	Audit        *slog.Logger // security-relevant events, see audit.go
+	OIDCLabel    string       // non-empty turns single sign-on on; the name on the button
+	tpl          *template.Template
 }
 
 func New(h *ipc.Client) *Server {
@@ -94,6 +96,15 @@ func (s *Server) Handler(altSvc string) http.Handler {
 		mux.HandleFunc("POST /album/create", s.albumCreate)
 		mux.HandleFunc("GET /album/edit", s.albumEditPage)
 		mux.HandleFunc("POST /album/edit", s.albumEditDo)
+	}
+	if s.Shares {
+		mux.HandleFunc("GET /share", s.shareForm)
+		mux.HandleFunc("POST /share", s.shareCreate)
+		mux.HandleFunc("GET /shares", s.shareList)
+		mux.HandleFunc("POST /share/revoke", s.shareRevoke)
+		mux.HandleFunc("GET /s/{token}", s.sharePage)
+		mux.HandleFunc("GET /s/{token}/get", s.shareGet)
+		mux.HandleFunc("POST /s/{token}/get", s.shareGet)
 	}
 	mux.HandleFunc("POST /mkdir", s.mkdir)
 	mux.HandleFunc("GET /rename", s.editPage("rename"))
@@ -214,7 +225,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Fresh token per login prevents session fixation.
-	token, err := s.sess.create(&Session{User: resp.User, UID: resp.UID, Admin: resp.Admin, Auth: "password", Stage: StageFull, worker: wc})
+	token, err := s.sess.create(&Session{User: resp.User, UID: resp.UID, Admin: resp.Admin, Grant: resp.Grant, Auth: "password", Stage: StageFull, worker: wc})
 	if err != nil {
 		wc.Close()
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -334,11 +345,11 @@ func (s *Server) listing(w http.ResponseWriter, r *http.Request, sess *Session, 
 		}
 	}
 	type row struct {
-		Name, Href, Rename, Delete, Full, Icon, Download string
-		Dir, Album                                       bool
-		Cover                                            string
-		Size                                             int64
-		MTime                                            time.Time
+		Name, Href, Rename, Delete, Share, Full, Icon, Download string
+		Dir, Album                                              bool
+		Cover                                                   string
+		Size                                                    int64
+		MTime                                                   time.Time
 	}
 	var rows []row
 	for _, e := range resp.Entries {
@@ -347,7 +358,7 @@ func (s *Server) listing(w http.ResponseWriter, r *http.Request, sess *Session, 
 			n += "/"
 		}
 		full := path.Join(rel, e.Name)
-		rows = append(rows, row{Name: n, Href: rowHref(n), Rename: actionURL("rename", full), Delete: actionURL("delete", full), Full: full,
+		rows = append(rows, row{Name: n, Href: rowHref(n), Rename: actionURL("rename", full), Delete: actionURL("delete", full), Share: actionURL("share", full), Full: full,
 			Icon: iconFor(e.Name, e.Dir), Download: rowHref(e.Name) + "?dl", Dir: e.Dir, Size: e.Size, MTime: time.Unix(0, e.MTime), Album: s.Albums && e.Album})
 		if s.Albums && e.Cover != "" {
 			rows[len(rows)-1].Cover = fileURL("/thumb/", path.Join(full, e.Cover)) + "?s=t"
@@ -362,7 +373,7 @@ func (s *Server) listing(w http.ResponseWriter, r *http.Request, sess *Session, 
 		title = path.Base(rel)
 	}
 	s.render(w, http.StatusOK, "browse", map[string]any{"Title": title, "Crumbs": crumbs(rel), "User": sess.User, "Admin": sess.Admin, "Path": cur, "Rows": rows, "Root": rel == "", "Cut": resp.Cut, "Writable": resp.Writable, "Dir": strings.Trim(rel, "/"),
-		"HasAlbum": hasAlbum, "CanAlbum": hasImages && !hasAlbum && resp.Writable, "AlbumTitle": title})
+		"Shares": s.Shares, "HasAlbum": hasAlbum, "CanAlbum": hasImages && !hasAlbum && resp.Writable, "AlbumTitle": title})
 }
 
 // fail answers an HTML page request with a readable error page.

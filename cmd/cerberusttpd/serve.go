@@ -52,6 +52,8 @@ func serveMain(args []string) error {
 	w := web.New(hc)
 	w.MaxUpload = o.maxUpload
 	w.Albums = o.albums != "off"
+	w.Shares = o.shares == "on"
+	w.ShareMaxDays = o.shareMaxDays
 	if o.oidcEnabled() {
 		w.OIDCLabel = o.oidcLabel
 	}

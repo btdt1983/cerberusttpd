@@ -194,3 +194,37 @@ func TestSingleSignOnFilesMustBeRootsAlone(t *testing.T) {
 		t.Error("missing secret file accepted")
 	}
 }
+
+func TestSharesSetting(t *testing.T) {
+	resolve := func(conf string) (options, error) {
+		var o options
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		o.register(fs)
+		if conf != "" {
+			if err := applyConfig(fs, write(t, conf)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return o, o.resolve(fs)
+	}
+	if o, err := resolve(""); err != nil || o.shares != "off" || o.shareMaxDays != 30 {
+		t.Errorf("default: shares=%q days=%d err=%v (want off, 30)", o.shares, o.shareMaxDays, err)
+	}
+	if o, err := resolve("shares = on\nshare-max-days = 7\n"); err != nil || o.shares != "on" || o.shareMaxDays != 7 {
+		t.Errorf("on: %+v %v", o, err)
+	}
+	for _, bad := range []string{"shares = maybe\n", "share-max-days = 0\n", "share-max-days = 99999\n"} {
+		if _, err := resolve(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	o, _ := resolve("shares = on\nshare-max-days = 7\n")
+	got := map[string]string{}
+	a := o.args()
+	for i := 0; i+1 < len(a); i++ {
+		got[a[i]] = a[i+1]
+	}
+	if got["-shares"] != "on" || got["-share-max-days"] != "7" {
+		t.Errorf("not passed on to the network process: %v", got)
+	}
+}

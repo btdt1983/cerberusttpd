@@ -71,6 +71,8 @@ func (s *server) janitor() {
 			}
 		}
 		s.mu.Unlock()
+		s.purgeGrants(now)
+		s.purgeShares(now)
 		if s.StaleAfter > 0 && now.After(next) {
 			next = now.Add(cleanupEvery)
 			s.cleanupAll()

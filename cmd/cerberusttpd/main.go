@@ -51,10 +51,11 @@ var version = "dev"
 
 type options struct {
 	addr, root, data, mode, names, domains, email, svcUser, pamService, twoFA, config string
-	dnsProvider, dnsCreds, acmeCA, acmeHTTP, albums                                   string
+	dnsProvider, dnsCreds, acmeCA, acmeHTTP, albums, shares                           string
 	oidcIssuer, oidcClientID, oidcSecretFile, oidcUsers, oidcRedirect, oidcLabel      string
 	scanCommand                                                                       string
 	scanTimeout                                                                       time.Duration
+	shareMaxDays                                                                      int
 
 	minUID     uint
 	maxUpload  int64
@@ -78,6 +79,8 @@ func (o *options) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.pamService, "pam-service", "cerberusttpd", "PAM service name (/etc/pam.d/<name>)")
 	fs.StringVar(&o.twoFA, "2fa", "required", "two-factor login: required (everyone enrols a TOTP app) or off")
 	fs.StringVar(&o.albums, "albums", "on", "photo albums (masonry gallery, lightbox, album editor, thumbnails): on or off")
+	fs.StringVar(&o.shares, "shares", "off", "share links for people without an account (one file, expiry, optional password and download limit): on or off")
+	fs.IntVar(&o.shareMaxDays, "share-max-days", 30, "the longest a share link may stay valid, in days")
 	fs.StringVar(&o.oidcIssuer, "oidc-issuer", "", "single sign-on: the provider, for Microsoft https://login.microsoftonline.com/<tenant-id>/v2.0")
 	fs.StringVar(&o.oidcClientID, "oidc-client-id", "", "single sign-on: application (client) ID")
 	fs.StringVar(&o.oidcSecretFile, "oidc-client-secret-file", "", "single sign-on: root-only file holding the client secret")
@@ -97,7 +100,7 @@ func (o *options) args() []string {
 		"-names", o.names, "-domain", o.domains, "-acme-email", o.email,
 		"-dns-provider", o.dnsProvider, "-acme-ca", o.acmeCA, "-acme-http-addr", o.acmeHTTP,
 		"-user", o.svcUser, "-pam-service", o.pamService, "-min-uid", fmt.Sprint(o.minUID),
-		"-2fa", o.twoFA, "-albums", o.albums, "-oidc-issuer", o.oidcIssuer, "-oidc-label", o.oidcLabel, "-max-upload", fmt.Sprint(o.maxUpload), "-stale-after", o.staleAfter.String(),
+		"-2fa", o.twoFA, "-albums", o.albums, "-shares", o.shares, "-share-max-days", fmt.Sprint(o.shareMaxDays), "-oidc-issuer", o.oidcIssuer, "-oidc-label", o.oidcLabel, "-max-upload", fmt.Sprint(o.maxUpload), "-stale-after", o.staleAfter.String(),
 	}
 }
 
@@ -115,6 +118,12 @@ func (o *options) resolve(fs *flag.FlagSet) error {
 	}
 	if o.albums != "on" && o.albums != "off" {
 		return fmt.Errorf("albums must be on or off (it is %q)", o.albums)
+	}
+	if o.shares != "on" && o.shares != "off" {
+		return fmt.Errorf("shares must be on or off (it is %q)", o.shares)
+	}
+	if o.shareMaxDays < 1 || o.shareMaxDays > 3650 {
+		return fmt.Errorf("share-max-days must be between 1 and 3650 (it is %d)", o.shareMaxDays)
 	}
 	if err := o.checkOIDC(); err != nil {
 		return err

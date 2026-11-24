@@ -50,6 +50,8 @@ type Config struct {
 	OIDC        *OIDC         // single sign-on; nil disables it
 	Scan        string        // virus scanner command for finished uploads; empty = none
 	ScanTimeout time.Duration
+	Shares      bool          // share links for people without an account
+	ShareMaxTTL time.Duration // longest a share link may live
 }
 
 type Request struct {
@@ -63,6 +65,14 @@ type Request struct {
 	Nonce    string `json:"nonce,omitempty"`    // oidc_begin, oidc_login
 	Verifier string `json:"verifier,omitempty"` // oidc_begin, oidc_login: PKCE
 	AuthCode string `json:"authcode,omitempty"` // oidc_login: the authorization code from the provider
+
+	Grant   string `json:"grant,omitempty"`    // share_*: proof of the owner's login, see share.go
+	Path    string `json:"path,omitempty"`     // share_create: the file, relative to the owner's root
+	TTL     int64  `json:"ttl,omitempty"`      // share_create: lifetime in seconds
+	Max     int    `json:"max,omitempty"`      // share_create: download limit, 0 = none
+	ShareID string `json:"share_id,omitempty"` // share_revoke
+	Token   string `json:"token,omitempty"`    // share_info, share_open: the secret from the link
+	Range   string `json:"range,omitempty"`    // share_open: the browser's Range header, to decide whether this request counts
 }
 
 type Response struct {
@@ -81,6 +91,18 @@ type Response struct {
 	CAPEM    []byte   `json:"ca,omitempty"`
 	URL      string   `json:"url,omitempty"` // oidc_begin: where the browser signs in
 	IdP      string   `json:"idp,omitempty"` // oidc_login: who the provider says it was (for the audit log)
+
+	Grant   string      `json:"grant,omitempty"`    // login: lets this user's session make share links
+	Token   string      `json:"token,omitempty"`    // share_create: the secret for the link, shown once
+	ShareID string      `json:"share_id,omitempty"` // share_*: public handle, safe for the audit log
+	Name    string      `json:"name,omitempty"`     // share_info, share_open: file name
+	Size    int64       `json:"size,omitempty"`
+	MTime   int64       `json:"mtime,omitempty"`
+	Expires time.Time   `json:"expires,omitempty"`
+	HasPW   bool        `json:"haspw,omitempty"`
+	Whole   bool        `json:"whole,omitempty"`  // share_open: serve the whole file, ignore Range (the link has a download limit)
+	Detail  string      `json:"detail,omitempty"` // share_*: why a share is unavailable, for the audit log only
+	Shares  []ShareInfo `json:"shares,omitempty"`
 }
 
 // pending is a user who passed PAM but not yet the second factor. It lives only
@@ -102,6 +124,11 @@ type server struct {
 	mu      sync.Mutex
 	pending map[string]*pending
 	seen    map[string]time.Time // last login per user, for the upload cleanup
+
+	shares     *shareStore
+	grants     map[string]grant // by token hash
+	shareSem   chan struct{}    // caps the workers anonymous downloads may start at once
+	shareLimit *limiter.Login
 }
 
 // Serve answers requests on f until the network process goes away.
@@ -109,6 +136,11 @@ func Serve(f *os.File, cfg Config) error {
 	s := &server{Config: cfg, limit: limiter.NewLogin(), pending: map[string]*pending{}}
 	if cfg.OIDC != nil {
 		s.oidc = newOIDCClient(*cfg.OIDC)
+	}
+	if cfg.Shares {
+		s.shares = loadShares(cfg.DataDir)
+		s.shareSem = make(chan struct{}, 4)
+		s.shareLimit = limiter.NewLogin()
 	}
 	go s.janitor()
 	return ipc.Serve(f, func(raw json.RawMessage) (any, []*os.File) {
@@ -129,6 +161,16 @@ func Serve(f *os.File, cfg Config) error {
 			return s.oidcBegin(req), nil
 		case "oidc_login":
 			return s.oidcLogin(req)
+		case "share_create":
+			return s.shareCreate(req), nil
+		case "share_list":
+			return s.shareList(req), nil
+		case "share_revoke":
+			return s.shareRevoke(req), nil
+		case "share_info":
+			return s.shareInfo(req), nil
+		case "share_open":
+			return s.shareOpen(req)
 		}
 		return Response{Err: "internal"}, nil
 	})
@@ -292,7 +334,11 @@ func (s *server) complete(u *user.User, host string) (Response, []*os.File) {
 	}
 	s.noteSeen(u.Username)
 	log.Printf("helper: login ok user=%q uid=%d admin=%v rhost=%s", u.Username, cred.Uid, admin, host)
-	return Response{OK: true, User: u.Username, UID: cred.Uid, Admin: admin}, []*os.File{sock}
+	resp := Response{OK: true, User: u.Username, UID: cred.Uid, Admin: admin}
+	if s.Shares {
+		resp.Grant = s.newGrant(u.Username)
+	}
+	return resp, []*os.File{sock}
 }
 
 // homeOK reports whether the folder the user would see exists. Signing in

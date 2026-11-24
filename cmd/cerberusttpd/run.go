@@ -86,6 +86,7 @@ func runMain(args []string) error {
 		return err
 	}
 	cfg.Scan, cfg.ScanTimeout = o.scanCommand, o.scanTimeout
+	cfg.Shares, cfg.ShareMaxTTL = o.shares == "on", time.Duration(o.shareMaxDays)*24*time.Hour
 	if o.oidcEnabled() {
 		if cfg.OIDC, err = o.loadOIDC(); err != nil {
 			return err

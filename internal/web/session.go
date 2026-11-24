@@ -35,6 +35,7 @@ type Session struct {
 	User    string
 	UID     uint32
 	Admin   bool
+	Grant   string // the helper's proof of this login, needed to make share links
 	Auth    string // how the user proved who they are: password, password+totp (for the audit log)
 	Stage   Stage
 	Created time.Time

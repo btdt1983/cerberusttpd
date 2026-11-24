@@ -122,7 +122,7 @@ func (s *Server) mfaSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	token, err := s.sess.promote(old, &Session{User: resp.User, UID: resp.UID, Admin: resp.Admin, Auth: "password+totp", Stage: StageFull, worker: wc})
+	token, err := s.sess.promote(old, &Session{User: resp.User, UID: resp.UID, Admin: resp.Admin, Grant: resp.Grant, Auth: "password+totp", Stage: StageFull, worker: wc})
 	if err != nil {
 		wc.Close()
 		http.Error(w, "internal error", http.StatusInternalServerError)

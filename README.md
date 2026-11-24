@@ -215,6 +215,49 @@ thumbnails and the live sidebar. Values are quoted, so a file name with a newlin
 forge a line. Passwords, codes and session tokens never appear. The journal is the place to
 keep it safe: forward it to a log server if the host itself is not trusted.
 
+## Share links (files for people without an account)
+
+Off by default, because it opens a way in without a login. Turn it on in the settings file:
+
+    shares = on
+    share-max-days = 30        # the longest a link may stay valid (default 30)
+
+A signed-in user then sees a **Share** link next to every file. They pick how long the link
+stays valid (up to `share-max-days`), optionally set a password (at most 64 bytes) and a
+download limit, and get a link like `https://files.example.com/s/<secret>`. The link is shown
+**once**: the server keeps only a hash of the secret, so a lost link cannot be looked up and
+has to be replaced. **Share links** in the header lists a user's links and revokes them.
+
+- One file per link (no folders). The person who opens the link sees the file name and a
+  Download button, and asks for the password first if there is one.
+- Unknown, expired, revoked and used-up links all show the same "this link does not work" page.
+- Every check is made by the root process (`run`), not by the network process: the secret, the
+  expiry, the password (bcrypt), the limit and a throttle on wrong passwords. The network
+  process cannot ask for a user's files; it receives one open file for the path the root process
+  stored when the owner made the link.
+- The file is opened with the owner's own rights at the moment of the download. If the file is
+  gone, or the owner's account has expired, its password has expired or the user was removed,
+  the link stops working. Locking the account alone (`usermod -L`) does **not** stop links,
+  just as it does not stop single sign-on: PAM account management does not look at it. When
+  someone leaves, revoke their links or expire the account (`chage -E 0 <user>`). A link follows
+  the file's path, not the file: replace the file and the link serves the new one.
+- A link with a **download limit** counts every request and always sends the whole file, so it
+  cannot be resumed or fetched in pieces (otherwise a range such as `0-99999999` would get around
+  the limit). A download cancelled halfway has still used one. Links without a limit support
+  resuming. A password-protected download is a form POST, which browsers cannot resume.
+- Share links are built from the address the owner used to open the page, so they are meant for
+  a public name (`tls = acme`). On a host that is only reachable by IP address with the
+  private CA, the link works only for people who trust that CA.
+- A password-protected link already shows the file name before the password is entered.
+- At most 100 active links per user. Expired links stay in the list for a day.
+- Links are stored in `shares.json` in the data directory (root only, backed up with it).
+
+Audit events: `share_create` and `share_revoke` (by the owner), `share_open` (results `ok`,
+`unavailable` with a `why`, `badpassword`, `password`, `throttled`, `busy`) and `share_view`
+for a link that does not work. They carry the share's id (`share=`), never the secret. Treat
+the link as a password: whoever has it, and the password if you set one, can download the file.
+The second factor does not apply to a download through a link; that is the point of it.
+
 ## Virus scanning of uploads
 
 Optional. Set `scan-command` and every finished upload is scanned before it gets its real

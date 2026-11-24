@@ -19,9 +19,9 @@ import (
 func TestTemplatesRender(t *testing.T) {
 	tpl := newTemplates()
 	row := map[string]any{"Name": "folder & \"x\"/", "Href": "x/", "Rename": "/rename?path=x", "Delete": "/delete?path=x", "Full": "x",
-		"Icon": "folder", "Download": "x?dl", "Dir": true, "Album": true, "Cover": "/thumb/x/c.jpg?s=t", "Size": int64(0), "MTime": time.Now()}
+		"Icon": "folder", "Download": "x?dl", "Share": "/share?path=x", "Dir": true, "Album": true, "Cover": "/thumb/x/c.jpg?s=t", "Size": int64(0), "MTime": time.Now()}
 	file := map[string]any{"Name": "<b>a</b>.txt", "Href": "a.txt", "Rename": "/rename?path=a", "Delete": "/delete?path=a", "Full": "a.txt",
-		"Icon": "file", "Download": "a.txt?dl", "Dir": false, "Size": int64(2048), "MTime": time.Now()}
+		"Icon": "file", "Download": "a.txt?dl", "Share": "/share?path=a.txt", "Dir": false, "Size": int64(2048), "MTime": time.Now()}
 	rows := []any{}
 	pages := map[string]any{
 		"login":    map[string]any{"Error": "failed", "SSO": "Micro<soft>"},
@@ -37,7 +37,13 @@ func TestTemplatesRender(t *testing.T) {
 		"albumedit": map[string]any{"Title": "Edit Trip", "User": "u", "Dir": "Trip", "Back": "/files/Trip/", "Error": true, "RemoveURL": "/delete?path=Trip%2F.x",
 			"Album":  map[string]any{"Title": "Trip", "Description": "d", "Cover": "a.jpg"},
 			"Photos": []photo{{Name: "a.jpg", Caption: "c", Thumb: "/thumb/Trip/a.jpg?s=t", Cover: true}, {Name: "b.jpg", Thumb: "/thumb/Trip/b.jpg?s=t"}}},
-		"browse": map[string]any{"Title": "Docs", "Crumbs": crumbs("Docs/sub"), "User": "u", "Admin": true, "Path": "/Docs/", "Root": false,
+		"shareform": map[string]any{"User": "u", "Path": "a/b.txt", "Name": "b.txt", "Back": "/files/a/", "Error": "x", "MaxDays": 30,
+			"TTLs": []map[string]any{{"Label": "1 day", "Seconds": int64(86400), "Default": true}}},
+		"sharedone": map[string]any{"User": "u", "Name": "b.txt", "Link": "https://h/s/abc", "Expires": "2030-01-01 10:00", "Max": 3, "HasPW": true, "Back": "/files/"},
+		"shares":    map[string]any{"User": "u", "Revoked": true, "Rows": []shareRow{{ID: "a1", Path: "a/b.txt", State: "active", Uses: "1 of 3", HasPW: true, Live: true, Expires: time.Now()}}},
+		"sharepage": map[string]any{"Name": "b.txt", "HasPW": true, "Get": "/s/abc/get", "Expires": "2030-01-01 10:00", "Error": "no"},
+		"sharegone": map[string]any{},
+		"browse": map[string]any{"Title": "Docs", "Shares": true, "Crumbs": crumbs("Docs/sub"), "User": "u", "Admin": true, "Path": "/Docs/", "Root": false,
 			"Cut": true, "Writable": true, "Dir": "Docs", "Rows": append(rows, file, row),
 			"HasAlbum": true, "CanAlbum": true, "AlbumTitle": "Docs"},
 	}
