@@ -179,6 +179,46 @@ that show only a general message here, with the details in `journalctl -u cerber
 | Here: "not linked to a user on this server" | The person is not in `oidc-users`, or the Linux account is missing, is root or has a uid below `min-uid`. |
 | Here: "Signing in with Microsoft failed", journal: `account not valid` | The Linux account is expired or its password has expired (PAM account check). |
 
+### Many users: automatic mapping, and switching off passwords
+
+For a few people the users file is fine. For hundreds or thousands, keep it small and let the
+account name follow the user name:
+
+    oidc-auto-domains = uwv.nl            # comma separated
+
+A person who is **not** in the users file then signs in as the account named exactly like their
+Microsoft user name, lower-cased: `Jan.Jansen@uwv.nl` signs in as the Linux account
+`jan.jansen@uwv.nl` (what sssd gives you with fully qualified names). Rules:
+
+- **The account must already exist** (nothing is created) and be an ordinary user: uid at least
+  `min-uid`, PAM allows it, and, if you set `login-group`, a member of that group.
+- **Only the listed domains.** The part after the last `@` must be one of them; anything else is
+  refused as "not linked".
+- **The users file wins.** An entry there is used instead; a line `jan.jansen@uwv.nl = -` refuses
+  that person outright.
+- **Names can be recycled, so the first sign-in is pinned.** A user name is not a stable
+  identity: when someone leaves and a new colleague later gets the same name, the new person
+  would inherit the account and the files of the first. The first automatic sign-in therefore
+  pins the account to Microsoft's object id (`/var/lib/cerberusttpd/oidc-pins.json`, root only).
+  A later sign-in with the same name but another object id is refused (`result=mismatch`
+  in the audit log, "linked to a different person" on screen). To settle it, remove the line for
+  that account from the pins file (or map the person explicitly in the users file, which skips
+  the pin). Without an object id in the token an automatic sign-in is refused.
+- This turns the users file from a list of who may sign in into an exception list. If that is
+  too wide, set `login-group` and put in it only the people who may use this service: it is
+  checked at every sign-in, whatever the method.
+
+If everybody signs in with single sign-on, switch password sign-in off:
+
+    password-login = off
+
+The login page then shows only the single sign-on button, the server refuses a posted password,
+and the root process does not check passwords at all. Consider the consequences before you do:
+**while the provider is unreachable nobody can sign in**, and there is no way in over the web
+for an emergency. The way out is on the server: set `password-login = on` in the config and
+restart the service (and `chage`, SSH and the console are unaffected). Two-factor (`2fa`) only
+applies to password sign-in.
+
 ### Good to know
 
 - **Skips TOTP.** A Microsoft sign-in does not ask for the cerberusttpd authenticator code,
@@ -186,7 +226,15 @@ that show only a general message here, with the details in `journalctl -u cerber
   does not check how Microsoft authenticated the person.
 - **Locking an account.** `usermod -L` (locked password) does *not* stop single sign-on. Remove the
   person from `oidc-users`, or expire the account (`chage -E 0 <user>`).
-- **Sign out** ends the session on this server only, not at Microsoft.
+- **Sign out** ends the session on this server only, not at Microsoft. The other way round too:
+  switching off or disabling the account at Microsoft does **not** end a session that is already
+  open here (there is no back-channel logout). It ends after 30 minutes without activity or 12
+  hours at most, or when an administrator ends it on the Admin page. Provider tokens are only
+  used during sign-in: nothing here depends on a token that could run out in the middle of a
+  long upload or download.
+- **Faillock and throttling are for passwords.** The 10 attempts / 5 minutes of faillock and the
+  per-IP throttle count failed *password* sign-ins. With single sign-on the password and the
+  second factor are Microsoft's, and so is their lock-out.
 - **Limits.** One provider; no automatic account creation; no group or role mapping. Other
   OpenID Connect providers that send a `preferred_username` claim (Keycloak, for example) should
   work with the same settings but are untested. Providers that only give an e-mail address
@@ -248,7 +296,11 @@ has to be replaced. **Share links** in the header lists a user's links and revok
 - Share links are built from the address the owner used to open the page, so they are meant for
   a public name (`tls = acme`). On a host that is only reachable by IP address with the
   private CA, the link works only for people who trust that CA.
-- A password-protected link already shows the file name before the password is entered.
+- A password-protected link does not show the file name before the password is entered. A link
+  without a password does.
+- `share-require-password = on` makes a password mandatory when a link is made, and it also
+  switches off the links made before without one. Together with a short `share-max-days` this
+  is the usual policy for an organisation that wants no anonymous downloads without a secret.
 - At most 100 active links per user. Expired links stay in the list for a day.
 - Links are stored in `shares.json` in the data directory (root only, backed up with it).
 
@@ -437,20 +489,79 @@ itself; file permissions are the ordinary Linux permissions of the directory use
 ## Administration
 
 - Reset a user's 2FA: `sudo /opt/cerberusttpd/cerberusttpd 2fa-reset -config /etc/cerberusttpd/cerberusttpd.conf <user>`
-- Administrator = member of the `wheel` group.
-- A user can sign in if their uid is >= `min-uid`, PAM allows the account and 2FA is correct.
+- Administrator = member of `admin-group` (default `wheel`). Give the application its own group
+  (`admin-group = cerberus-admins`) when the people who run it should not be able to use
+  `sudo`; leave it empty for nobody. Who is in that group decides who can end sessions, revoke
+  other people's links and see the audit overview, so manage and monitor it like `wheel`.
+- A user can sign in if their uid is >= `min-uid`, PAM allows the account, they are in
+  `login-group` (when set) and 2FA is correct (password sign-in) or Microsoft says so (single
+  sign-on).
 - Faillock: 10 failed attempts lock an account for 5 minutes (`/etc/pam.d/cerberusttpd`);
   on top of that the app throttles per IP + user.
 
-## Backup (important)
+## Home directories
 
-Back up `/var/lib/cerberusttpd`, at least:
+By default everybody sees their own home directory (or one shared `root`). A sign-in on the web
+does not open a PAM session, so `pam_mkhomedir` / `oddjob-mkhomedir` never runs for people who only
+use this service; with a directory such as Active Directory they have no home yet and see
+*"Your account has no folder on this server yet"* (`result=nohome`). Options:
 
-- `ca/ca-key.pem` and `ca/ca.pem`: without them everyone has to trust the CA again.
-- `2fa.key` together with `2fa/`: without the key the 2FA data is unreadable.
+1. Create the homes beforehand (`mkhomedir_helper <user>`, or a script / Ansible for the
+   whole group), or use a shared `root`.
+2. Let the service do it at the first sign-in:
+
+        create-home = on
+        create-home-base = /home         # the default
+
+   After the password (and second factor) or single sign-on has succeeded, the root process makes
+   the home itself: the files of `/etc/skel` (regular files and folders only, no access for group
+   and others), the SELinux labels the system's policy wants (`restorecon`), and then it hands the
+   folder to the user (mode 0700). Missing parent directories (`/home/uwv.nl/` for
+   `/home/uwv.nl/jan`) are created root-owned, 0755. Safeguards: it only works when no shared
+   `root` is set; the home path from the directory must be absolute, clean and at most three
+   levels below `create-home-base`; that base and every existing parent must be real directories
+   owned by root and not writable by others; the home itself must not exist yet. It never runs for a
+   share link or a file shared with people, and never before the last factor.
+   - **SELinux and nested homes.** `/home/jan` gets `user_home_dir_t` as it should. A home one level
+     deeper (`/home/uwv.nl/jan`) is labelled `user_home_t` by the default policy, which is wrong for a
+     home directory; the usual fix, also for sssd, is an equivalence rule:
+     `semanage fcontext -a -e /home /home/uwv.nl && restorecon -R /home/uwv.nl`. Check the
+     first new home with `ls -dZ` and `restorecon -nv`.
+
+## Backup and restore (important)
+
+Back up these, at least (root only: they hold secrets):
+
+| What | Why |
+| --- | --- |
+| `/var/lib/cerberusttpd/ca/` (`ca-key.pem`, `ca.pem`) | Without them everyone has to trust a new CA. |
+| `/var/lib/cerberusttpd/2fa.key` and `2fa/` | Without the key the second-factor data is unreadable. |
+| `/var/lib/cerberusttpd/users.json` | Who signed in lately (the clean-up of abandoned uploads). |
+| `/var/lib/cerberusttpd/shares.json` | Share links (hashes of the secrets, expiry, counters). |
+| `/var/lib/cerberusttpd/shared.json` | Files shared with users and groups. |
+| `/var/lib/cerberusttpd/oidc-pins.json` | Which person an automatic single sign-on account belongs to. |
+| `/var/lib/cerberusttpd/net/` | With `tls = acme`: the ACME account and certificates (otherwise a new certificate is requested, and Let's Encrypt limits that). |
+| `/etc/cerberusttpd/` | The settings, the single sign-on secret and the `oidc-users` file. |
 
 Anyone who has `ca-key.pem` or `2fa.key` can forge certificates or 2FA codes: keep them safe.
-The RPM never removes `/var/lib/cerberusttpd` or the `cerberusttpd` user.
+The RPM never removes `/var/lib/cerberusttpd` or the `cerberusttpd` user, and an upgrade
+(`rpm -Uvh`, `dnf upgrade`) leaves them and your edited config alone.
+
+**Restore** onto a fresh install of the same version (or newer), service stopped:
+
+    systemctl stop cerberusttpd
+    cp -a <backup>/var/lib/cerberusttpd/. /var/lib/cerberusttpd/      # keep modes and owners
+    cp -a <backup>/etc/cerberusttpd/. /etc/cerberusttpd/
+    chown root:root /var/lib/cerberusttpd /etc/cerberusttpd
+    chmod 0700 /var/lib/cerberusttpd                                   # 0711 with tls = acme
+    chmod 0600 /var/lib/cerberusttpd/*.json /var/lib/cerberusttpd/2fa.key /etc/cerberusttpd/oidc-secret
+    chown -R cerberusttpd: /var/lib/cerberusttpd/net                   # the network process owns this
+    restorecon -R /var/lib/cerberusttpd /etc/cerberusttpd /opt/cerberusttpd
+    systemctl start cerberusttpd
+
+`ca/` and `2fa/` stay root only (`0700`/`0600`). Restore into an *empty* data directory:
+copying over a running one mixes two states. The users file `oidc-users` must be owned by
+root and not writable by others, or single sign-on refuses to start.
 
 ## Ports and TLS
 
@@ -521,6 +632,67 @@ cannot). If another server holds 443 and you do not want a proxy for port 80, yo
 pass TLS for your domain through by SNI (nginx `stream` module).
 
 All `tls = acme` variants are **new and not yet verified against a live domain**.
+
+## Rolling out to an organisation
+
+A checklist for hundreds or thousands of users (for example a government agency with
+Microsoft sign-in and Active Directory through sssd):
+
+1. **Accounts and homes.** Accounts come from sssd; they must exist before the first sign-in and
+   have a uid of at least `min-uid`. Either create homes beforehand or set `create-home = on`
+   (see "Home directories"). Test with a domain account, with the short and the fully
+   qualified name as sssd gives it.
+2. **Who may sign in.** Create a group for the users of this service and set `login-group`.
+   With `oidc-auto-domains` that group is your allow-list; without it the users file is.
+3. **Single sign-on only.** `password-login = off` once SSO works, so there is no second door.
+   Decide who may still sign in when the provider is down (nobody, over the web).
+4. **Administrators.** Own group, `admin-group`; keep it small and review its members.
+5. **Sharing.** Decide: share links off (`shares = off`, the default), or on with a short
+   `share-max-days` and `share-require-password = on`; sharing with users and groups with
+   `share-users` and a list of `share-groups`. A link is a way in without an account.
+6. **Leavers.** Expire the account (`chage -E 0 <user>`; `usermod -L` alone is not enough), end
+   their session and revoke their links on the Admin page, and remove them from `oidc-users` and
+   from the pins file.
+7. **Logging.** Send the audit lines to your log platform / SIEM, for example with journald
+   forwarding: `journalctl -u cerberusttpd -o json -f | grep '"MESSAGE":"time=.*msg=audit'` into
+   your shipper, or rsyslog's `imjournal` filtered on `SYSLOG_IDENTIFIER=cerberusttpd` and the text
+   `msg=audit`. The Admin page keeps only the last 2000 events in memory.
+8. **Virus scan sizing.** `clamd` holds about 1.2 GB; give the host room, and see "Virus scanning"
+   for the limits that make large files pass unscanned and for `scan-timeout`.
+9. **Network.** HTTP/3 is UDP on the same port as HTTPS. Behind a firewall, NAT or load balancer,
+   and also after a redirect to `:8443`, UDP must reach that port unchanged or browsers quietly
+   stay on HTTP/2. For a public certificate behind a web server on 80/443, the HTTP-01 route
+   (`acme-http-addr`) is the plain one; TLS passthrough on the same port only works when nothing
+   else terminates TLS there.
+10. **Test it for real:** a pilot group first, a load test with your own numbers, and the
+    single sign-on and directory parts against your own tenant and directory (see below).
+
+## What has been verified
+
+What was tried, and where. "Throwaway" means a separate instance on AlmaLinux 9 with test
+accounts; "live" means the packaged service under its systemd unit with SELinux enforcing.
+
+| Part | Status |
+| --- | --- |
+| Password sign-in (PAM), faillock, throttling | Live |
+| TOTP second factor, recovery codes | Live |
+| HTTP/2 and HTTP/3, local CA | Live |
+| Uploads (resumable), downloads, rename, delete | Live |
+| Photo albums, thumbnails | Live |
+| Audit log | Live |
+| Admin page | Live (viewed), sessions/links/people in a throwaway |
+| Share links | Live (create, download with a password); expiry, limits, throttling in a throwaway |
+| Sharing with users and groups | Throwaway (users, groups, live group removal); not live |
+| Virus scan with ClamAV | Live (clean file passes, EICAR refused) |
+| Disk quota | XFS and ext4 on loop devices (throwaway) |
+| ACME HTTP-01 (Let's Encrypt, production) | Live once; **renewal, DNS-01 and TLS-ALPN-01 not verified** |
+| Single sign-on (Microsoft Entra ID) | **Not verified**: only against a simulated provider |
+| `password-login = off`, `login-group`, `admin-group`, `share-require-password` | Throwaway under a copy of the packaged unit (SELinux enforcing); the sign-in page and refusals were checked. The single sign-on part was a stand-in provider |
+| Automatic mapping (`oidc-auto-domains`) and the object-id pins | Unit tests only: they need a real provider and an account named like a user name (`jan@example.com`) |
+| Create-home (`create-home = on`) | Throwaway under a copy of the packaged unit: home, nested parent, labels and ownership checked, the worker starts in it. Not with a real directory (sssd) |
+| Active Directory / sssd | **Not verified** against a real directory |
+| AlmaLinux 10 package | Builds; **not run on a live EL10 system** |
+| Behaviour under heavy load (thousands of users) | **Not tested** |
 
 ## Limitations
 

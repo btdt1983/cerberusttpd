@@ -30,39 +30,42 @@ import (
 var staticFS embed.FS
 
 type Server struct {
-	helper       *ipc.Client
-	sess         *sessions
-	flows        *oidcFlows
-	loginSem     chan struct{}
-	limit        *limiter.Login
-	stats        stats
-	done         chan struct{} // closed on shutdown so live streams end
-	doneOnce     sync.Once
-	CAPEM        []byte       // public root certificate, served for trust setup
-	MaxUpload    int64        // bytes; 0 means unlimited
-	Albums       bool         // photo albums: gallery, editor and thumbnails
-	Shares       bool         // share links for people without an account
-	ShareUsers   bool         // sharing files with chosen users
-	ShareGroups  []string     // groups files may be shared with
-	ShareMaxDays int          // longest a share link may live
-	Audit        *slog.Logger // security-relevant events, see audit.go
-	Status       []StatusItem // settings the admin page shows
-	ring         *auditRing
-	OIDCLabel    string // non-empty turns single sign-on on; the name on the button
-	tpl          *template.Template
+	helper         *ipc.Client
+	sess           *sessions
+	flows          *oidcFlows
+	loginSem       chan struct{}
+	limit          *limiter.Login
+	stats          stats
+	done           chan struct{} // closed on shutdown so live streams end
+	doneOnce       sync.Once
+	CAPEM          []byte       // public root certificate, served for trust setup
+	MaxUpload      int64        // bytes; 0 means unlimited
+	Albums         bool         // photo albums: gallery, editor and thumbnails
+	Shares         bool         // share links for people without an account
+	PasswordLogin  bool         // false: only single sign-on may sign in
+	ShareRequirePW bool         // share links must have a password
+	ShareUsers     bool         // sharing files with chosen users
+	ShareGroups    []string     // groups files may be shared with
+	ShareMaxDays   int          // longest a share link may live
+	Audit          *slog.Logger // security-relevant events, see audit.go
+	Status         []StatusItem // settings the admin page shows
+	ring           *auditRing
+	OIDCLabel      string // non-empty turns single sign-on on; the name on the button
+	tpl            *template.Template
 }
 
 func New(h *ipc.Client) *Server {
 	s := &Server{
-		helper:   h,
-		sess:     newSessions(),
-		flows:    newOIDCFlows(),
-		done:     make(chan struct{}),
-		loginSem: make(chan struct{}, 8),
-		limit:    limiter.NewLogin(),
-		tpl:      newTemplates(),
-		Audit:    newAudit(),
-		ring:     newRing(),
+		helper:        h,
+		sess:          newSessions(),
+		flows:         newOIDCFlows(),
+		done:          make(chan struct{}),
+		loginSem:      make(chan struct{}, 8),
+		limit:         limiter.NewLogin(),
+		tpl:           newTemplates(),
+		Audit:         newAudit(),
+		ring:          newRing(),
+		PasswordLogin: true,
 	}
 	go func() {
 		for range time.Tick(time.Minute) {
@@ -187,7 +190,14 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 	s.render(w, http.StatusOK, "login", map[string]any{})
 }
 
+const noPasswordMsg = "Signing in with a password is turned off. Use single sign-on."
+
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	if !s.PasswordLogin {
+		s.auditAs(r, "", "password", "login", "disabled")
+		s.render(w, http.StatusForbidden, "login", map[string]any{"Error": noPasswordMsg})
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4096)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -414,8 +424,11 @@ func (s *Server) fail(w http.ResponseWriter, code string) {
 }
 
 func (s *Server) render(w http.ResponseWriter, status int, name string, data any) {
-	if m, ok := data.(map[string]any); ok && name == "login" && s.OIDCLabel != "" {
-		m["SSO"] = s.OIDCLabel
+	if m, ok := data.(map[string]any); ok && name == "login" {
+		if s.OIDCLabel != "" {
+			m["SSO"] = s.OIDCLabel
+		}
+		m["NoPassword"] = !s.PasswordLogin
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

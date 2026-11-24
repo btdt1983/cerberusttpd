@@ -86,6 +86,9 @@ func runMain(args []string) error {
 		return err
 	}
 	cfg.Scan, cfg.ScanTimeout = o.scanCommand, o.scanTimeout
+	cfg.PasswordLogin, cfg.ShareRequirePW = o.passwordLogin == "on", o.shareRequirePW == "on"
+	cfg.AdminGroup, cfg.LoginGroup = o.adminGroup, o.loginGroup
+	cfg.CreateHome, cfg.CreateHomeBase = o.createHome == "on", o.createHomeBase
 	cfg.ShareUsers = o.shareUsers == "on"
 	cfg.ShareGroups, _ = o.shareGroupList()
 	cfg.Shares, cfg.ShareMaxTTL = o.shares == "on", time.Duration(o.shareMaxDays)*24*time.Hour

@@ -38,7 +38,7 @@ func TestTemplatesRender(t *testing.T) {
 			"Album":  map[string]any{"Title": "Trip", "Description": "d", "Cover": "a.jpg"},
 			"Photos": []photo{{Name: "a.jpg", Caption: "c", Thumb: "/thumb/Trip/a.jpg?s=t", Cover: true}, {Name: "b.jpg", Thumb: "/thumb/Trip/b.jpg?s=t"}}},
 		"shareform": map[string]any{"User": "u", "Path": "a/b.txt", "Name": "b.txt", "Back": "/files/a/", "Error": "x", "MaxDays": 30,
-			"TTLs": []map[string]any{{"Label": "1 day", "Seconds": int64(86400), "Default": true}}, "Links": true, "People": true, "ShareUsers": true,
+			"TTLs": []map[string]any{{"Label": "1 day", "Seconds": int64(86400), "Default": true}}, "Links": true, "People": true, "ShareUsers": true, "RequirePW": true,
 			"UserList": "jan, <b>", "Current": "ab12", "PeopleError": "no", "Groups": []map[string]any{{"Name": "finance", "On": true}, {"Name": "hr"}}},
 		"shared": map[string]any{"User": "u", "Saved": true, "Stopped": true,
 			"WithMe": []sharedRow{{ID: "a1", Owner: "jan", Name: "a.txt", Created: time.Now()}},

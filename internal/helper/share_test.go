@@ -65,7 +65,7 @@ func TestShareLifecycle(t *testing.T) {
 	if rv := s.shareRevoke(Request{Grant: piet, ShareID: r.ShareID}); rv.Err != "notfound" {
 		t.Fatalf("piet revoked jan's share: %+v", rv)
 	}
-	if in := s.shareInfo(Request{Token: r.Token}); !in.OK || in.Name != "b.txt" || !in.HasPW {
+	if in := s.shareInfo(Request{Token: r.Token}); !in.OK || in.Name != "" || !in.HasPW {
 		t.Fatalf("info: %+v", in)
 	}
 	if rv := s.shareRevoke(Request{Grant: jan, ShareID: r.ShareID}); !rv.OK {

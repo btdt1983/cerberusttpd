@@ -54,6 +54,13 @@ type Config struct {
 	ShareMaxTTL time.Duration // longest a share link may live
 	ShareUsers  bool          // sharing files with chosen users
 	ShareGroups []string      // groups files may be shared with (empty: no group sharing)
+
+	PasswordLogin  bool   // false: only single sign-on may sign in
+	ShareRequirePW bool   // share links must have a password
+	AdminGroup     string // members are administrators (default wheel)
+	LoginGroup     string // when set, only members may sign in at all
+	CreateHome     bool   // make a missing home directory at the first sign-in
+	CreateHomeBase string // create-home only works below this directory (default /home)
 }
 
 type Request struct {
@@ -135,6 +142,7 @@ type server struct {
 
 	shares     *shareStore
 	acl        *aclStore
+	pins       *pinStore
 	grants     map[string]grant // by token hash
 	shareSem   chan struct{}    // caps the workers anonymous downloads may start at once
 	shareLimit *limiter.Login
@@ -145,6 +153,19 @@ func Serve(f *os.File, cfg Config) error {
 	s := &server{Config: cfg, limit: limiter.NewLogin(), pending: map[string]*pending{}}
 	if cfg.OIDC != nil {
 		s.oidc = newOIDCClient(*cfg.OIDC)
+		if len(cfg.OIDC.AutoDomains) > 0 {
+			s.pins = loadPins(cfg.DataDir)
+		}
+	}
+	if cfg.AdminGroup != "" {
+		if _, err := user.LookupGroup(cfg.AdminGroup); err != nil {
+			log.Printf("helper: admin-group %q not found (yet): %v", cfg.AdminGroup, err)
+		}
+	}
+	if cfg.LoginGroup != "" {
+		if _, err := user.LookupGroup(cfg.LoginGroup); err != nil {
+			log.Printf("helper: login-group %q not found (yet): nobody can sign in until it exists: %v", cfg.LoginGroup, err)
+		}
 	}
 	if s.sharingOn() {
 		s.shares = loadShares(cfg.DataDir)
@@ -212,6 +233,9 @@ func (s *server) leaf() Response {
 }
 
 func (s *server) login(req Request) (Response, []*os.File) {
+	if !s.PasswordLogin { // not only hidden in the page: nothing here may check a password
+		return Response{Err: "disabled"}, nil
+	}
 	start := time.Now()
 	fail := func(code string) (Response, []*os.File) {
 		time.Sleep(time.Until(start.Add(failFloor)))
@@ -231,7 +255,7 @@ func (s *server) login(req Request) (Response, []*os.File) {
 		s.limit.Fail(host, limiterKey(req.User))
 		return fail("denied")
 	}
-	if !s.homeOK(u) { // say so now, before asking for a second factor
+	if !s.homeReady(u) { // say so now, before asking for a second factor
 		return Response{Err: "nohome", User: u.Username}, nil
 	}
 	if s.MFA == nil {
@@ -342,10 +366,10 @@ func (s *server) mfaVerify(req Request) (Response, []*os.File) {
 
 // complete starts the user's worker and reports who logged in.
 func (s *server) complete(u *user.User, host string) (Response, []*os.File) {
-	if !s.homeOK(u) {
+	if !s.ensureHome(u) { // every factor has passed: only now may a home be made
 		return Response{Err: "nohome", User: u.Username}, nil
 	}
-	cred, admin, err := credFor(u)
+	cred, admin, err := credFor(u, s.AdminGroup)
 	if err != nil {
 		log.Printf("helper: credentials for %q: %v", u.Username, err)
 		return Response{Err: "internal"}, nil
@@ -398,11 +422,38 @@ func (s *server) eligibleName(name string) (*user.User, bool) {
 	if err != nil || uid == 0 || uint32(uid) < s.MinUID {
 		return nil, false
 	}
+	if !s.inGroup(u, s.LoginGroup) {
+		return nil, false
+	}
 	return u, true
 }
 
-// credFor builds the kernel credentials for u and reports wheel membership.
-func credFor(u *user.User) (*syscall.Credential, bool, error) {
+// inGroup reports whether u is a member of the named group. An empty name
+// means "no restriction"; a group that does not exist answers no, so a typo or
+// a directory that is not ready yet never lets everybody in.
+func (s *server) inGroup(u *user.User, name string) bool {
+	if name == "" {
+		return true
+	}
+	g, err := user.LookupGroup(name)
+	if err != nil {
+		return false
+	}
+	gids, err := u.GroupIds()
+	if err != nil {
+		return false
+	}
+	for _, id := range gids {
+		if id == g.Gid {
+			return true
+		}
+	}
+	return false
+}
+
+// credFor builds the kernel credentials for u and reports whether u is a
+// member of adminGroup (empty: nobody is).
+func credFor(u *user.User, adminGroup string) (*syscall.Credential, bool, error) {
 	uid, err := strconv.ParseUint(u.Uid, 10, 32)
 	if err != nil {
 		return nil, false, err
@@ -417,7 +468,7 @@ func credFor(u *user.User) (*syscall.Credential, bool, error) {
 	}
 	groups := []uint32{uint32(gid)}
 	admin := false
-	wheel, wheelErr := user.LookupGroup("wheel")
+	admGroup, admErr := user.LookupGroup(adminGroup)
 	for _, g := range gids {
 		n, err := strconv.ParseUint(g, 10, 32)
 		if err != nil {
@@ -426,7 +477,7 @@ func credFor(u *user.User) (*syscall.Credential, bool, error) {
 		if uint32(n) != uint32(gid) {
 			groups = append(groups, uint32(n))
 		}
-		if wheelErr == nil && g == wheel.Gid {
+		if adminGroup != "" && admErr == nil && g == admGroup.Gid {
 			admin = true
 		}
 	}

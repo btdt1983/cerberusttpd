@@ -12,13 +12,14 @@ func newTemplates() *template.Template {
 const pages = `
 {{define "head"}}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>{{.}} · Cerberusttpd</title><link rel="icon" href="/static/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/static/app.css"></head><body>{{end}}
 {{define "login"}}{{template "head" "Sign in"}}
-<form class="login card" method="post" action="/login">
+{{if .NoPassword}}<div class="login card"><div class="brandmark"><svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor"/><circle cx="9" cy="16" r="3.2" fill="#fff"/><circle cx="16" cy="16" r="3.2" fill="#fff"/><circle cx="23" cy="16" r="3.2" fill="#fff"/></svg><h2>Cerberusttpd</h2></div>{{if .Error}}<p class="err" role="alert">{{.Error}}</p>{{end}}</div>{{else}}<form class="login card" method="post" action="/login">
 <div class="brandmark"><svg width="28" height="28" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor"/><circle cx="9" cy="16" r="3.2" fill="#fff"/><circle cx="16" cy="16" r="3.2" fill="#fff"/><circle cx="23" cy="16" r="3.2" fill="#fff"/></svg><h2>Cerberusttpd</h2></div><p class="mut">Sign in with your Linux account.</p>
 <label for="user">Username</label><input id="user" name="user" autocomplete="username" autocapitalize="none" required autofocus>
 <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required>
 {{if .Error}}<p class="err" role="alert">{{.Error}}</p>{{end}}
 <button type="submit">Sign in</button>
 </form>
+{{end}}
 {{if .SSO}}<form class="login card" method="post" action="/oidc/login"><p class="mut">Or sign in with your organisation account.</p><button type="submit">Sign in with {{.SSO}}</button></form>{{end}}
 </body></html>{{end}}
 {{define "continue"}}<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url={{.To}}"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Signing in · Cerberusttpd</title><link rel="stylesheet" href="/static/app.css"></head><body><div class="login card"><p class="mut">Signing in… <a href="{{.To}}">Continue</a></p></div></body></html>{{end}}
@@ -110,7 +111,7 @@ const pages = `
 <p>Anyone who has the link can download this file, without an account, until the link expires. Send it only to the people who should have it.</p>
 <form method="post" action="/share"><input type="hidden" name="path" value="{{.Path}}">
 <label for="ttl">Valid for</label><select id="ttl" name="ttl">{{range .TTLs}}<option value="{{.Seconds}}"{{if .Default}} selected{{end}}>{{.Label}}</option>{{end}}</select>
-<label for="password">Password (optional)</label><input id="password" name="password" type="password" autocomplete="new-password" maxlength="64">
+<label for="password">Password{{if .RequirePW}} (required){{else}} (optional){{end}}</label><input id="password" name="password" type="password" autocomplete="new-password" maxlength="64"{{if .RequirePW}} required{{end}}>
 <label for="max">Download limit (optional)</label><input id="max" name="max" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="no limit">
 {{if .Error}}<p class="err" role="alert">{{.Error}}</p>{{end}}
 <button type="submit">Create link</button> &nbsp; <a href="{{.Back}}">Cancel</a></form>{{end}}

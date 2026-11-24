@@ -86,5 +86,6 @@ func (o *options) loadOIDC() (*helper.OIDC, error) {
 	if _, err := helper.LookupUser(o.oidcUsers, helper.Identity{}); err != nil {
 		return nil, fmt.Errorf("oidc-users: %v", err)
 	}
-	return &helper.OIDC{Issuer: o.oidcIssuer, ClientID: o.oidcClientID, Secret: secret, UsersFile: o.oidcUsers, RedirectURL: o.oidcRedirect}, nil
+	auto, _ := o.autoDomainList()
+	return &helper.OIDC{Issuer: o.oidcIssuer, ClientID: o.oidcClientID, Secret: secret, UsersFile: o.oidcUsers, RedirectURL: o.oidcRedirect, AutoDomains: auto}, nil
 }

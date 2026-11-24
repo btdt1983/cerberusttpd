@@ -103,7 +103,7 @@ func (s *server) cleanupAll() {
 
 // cleanupUser runs `cleanup` with u's credentials, so deletion rights are the user's own.
 func (s *server) cleanupUser(u *user.User) {
-	cred, _, err := credFor(u)
+	cred, _, err := credFor(u, "")
 	if err != nil {
 		return
 	}

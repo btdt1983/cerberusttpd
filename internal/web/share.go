@@ -73,7 +73,7 @@ func (s *Server) shareFormData(sess *Session, name, rel, errLinks, errPeople str
 	d := map[string]any{"User": sess.User, "Admin": sess.Admin, "Path": rel, "Name": name,
 		"Back": "/files/" + encodePath(parentDir(rel)), "Links": s.Shares, "People": s.Internal(),
 		"Error": errLinks, "PeopleError": errPeople, "TTLs": s.shareChoices(), "MaxDays": s.ShareMaxDays,
-		"ShareUsers": s.ShareUsers}
+		"ShareUsers": s.ShareUsers, "RequirePW": s.ShareRequirePW}
 	if s.Internal() {
 		var users []string
 		have := map[string]bool{}
@@ -129,6 +129,10 @@ func (s *Server) shareCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	pw := r.PostForm.Get("password")
+	if s.ShareRequirePW && pw == "" {
+		again("A password is required for share links.")
+		return
+	}
 	if len(pw) > 64 {
 		again("The password may be at most 64 bytes long.")
 		return
@@ -143,6 +147,9 @@ func (s *Server) shareCreate(w http.ResponseWriter, r *http.Request) {
 	case "":
 	case "toomany":
 		again("You have too many active share links. Revoke one first.")
+		return
+	case "needpw":
+		again("A password is required for share links.")
 		return
 	default:
 		s.fail(w, "internal")

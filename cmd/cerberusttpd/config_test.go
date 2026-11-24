@@ -299,3 +299,65 @@ func TestShareUsersAndGroups(t *testing.T) {
 		t.Errorf("status: %q", status["Sharing with people"])
 	}
 }
+
+func TestOrganisationSettings(t *testing.T) {
+	sso := "oidc-issuer = https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0\noidc-client-id = x\noidc-client-secret-file = /etc/s\noidc-users = /etc/u\noidc-redirect-url = https://f.example.com/oidc/callback\n"
+	resolve := func(conf string) (options, error) {
+		var o options
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		o.register(fs)
+		if conf != "" {
+			if err := applyConfig(fs, write(t, conf)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return o, o.resolve(fs)
+	}
+	o, err := resolve("")
+	if err != nil || o.passwordLogin != "on" || o.shareRequirePW != "off" || o.adminGroup != "wheel" || o.loginGroup != "" || o.createHome != "off" || o.createHomeBase != "/home" || o.oidcAutoDomains != "" {
+		t.Errorf("defaults changed behaviour: %+v %v", o, err)
+	}
+	for name, conf := range map[string]string{
+		"password-login off without SSO": "password-login = off\n",
+		"password-login maybe":           "password-login = maybe\n",
+		"auto domains without SSO":       "oidc-auto-domains = uwv.nl\n",
+		"auto domain not a domain":       sso + "oidc-auto-domains = uwv.nl, bad domain\n",
+		"auto domain with a user":        sso + "oidc-auto-domains = jan@uwv.nl\n",
+		"share-require-password maybe":   "share-require-password = maybe\n",
+		"create-home maybe":              "create-home = maybe\n",
+		"create-home-base is /":          "create-home-base = /\n",
+		"create-home-base relative":      "create-home-base = home\n",
+		"create-home-base trailing /":    "create-home-base = /home/\n",
+		"admin-group with a space":       "admin-group = my group\n",
+		"login-group with a dash first":  "login-group = -x\n",
+	} {
+		if _, err := resolve(conf); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	o, err = resolve(sso + "password-login = off\noidc-auto-domains = UWV.nl, test.example\nlogin-group = cerberus-users\nadmin-group = cerberus-admins\ncreate-home = on\ncreate-home-base = /home\nshare-require-password = on\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := o.autoDomainList(); len(d) != 2 || d[0] != "uwv.nl" || d[1] != "test.example" {
+		t.Errorf("domains: %v", d)
+	}
+	got := map[string]string{}
+	a := o.args()
+	for i := 0; i+1 < len(a); i++ {
+		got[a[i]] = a[i+1]
+	}
+	for k, want := range map[string]string{"-password-login": "off", "-share-require-password": "on", "-admin-group": "cerberus-admins", "-login-group": "cerberus-users", "-create-home": "on"} {
+		if got[k] != want {
+			t.Errorf("%s not passed on: %q", k, got[k])
+		}
+	}
+	status := map[string]string{}
+	for _, it := range o.status() {
+		status[it.Name] = it.Value
+	}
+	if status["Password sign-in"] != "off" || status["Administrators"] != "group cerberus-admins" || status["Only members of"] != "group cerberus-users" ||
+		status["Automatic SSO mapping"] != "domains: uwv.nl, test.example" || status["Create home directories"] != "on, below /home" {
+		t.Errorf("status: %v", status)
+	}
+}

@@ -171,3 +171,23 @@ func TestSharingSwitches(t *testing.T) {
 		t.Error("Sharing/Internal do not follow the settings")
 	}
 }
+
+func TestPasswordLoginOffInTheWeb(t *testing.T) {
+	s := New(nil)
+	s.OIDCLabel = "Microsoft"
+	s.PasswordLogin = false
+	h := s.Handler("")
+	page := adminReq(h, "GET", "/login", "", "")
+	if page.Code != http.StatusOK || strings.Contains(page.Body.String(), `name="password"`) || !strings.Contains(page.Body.String(), "Microsoft") {
+		t.Errorf("login page: %d, password field still there or no SSO button", page.Code)
+	}
+	// The helper is nil: reaching it would panic, so a refusal here proves nothing was sent.
+	post := adminReq(h, "POST", "/login", "", url.Values{"user": {"jan"}, "password": {"x"}}.Encode())
+	if post.Code != http.StatusForbidden || !strings.Contains(post.Body.String(), "turned off") {
+		t.Errorf("POST /login: %d", post.Code)
+	}
+	on := New(nil)
+	if p := adminReq(on.Handler(""), "GET", "/login", "", ""); !strings.Contains(p.Body.String(), `name="password"`) {
+		t.Error("the password form is missing by default")
+	}
+}

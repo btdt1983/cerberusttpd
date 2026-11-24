@@ -29,6 +29,12 @@ type OIDC struct {
 	Secret      string // the client secret itself, read from a root-only file by `run`
 	UsersFile   string // identity = unix user, one per line
 	RedirectURL string // https://host/oidc/callback, registered with the provider
+
+	// AutoDomains switches on automatic mapping: an identity that is not in the
+	// users file signs in as the account named exactly like its user name
+	// (jan@example.com), when the part after the @ is in this list. The first
+	// sign-in pins the account to the provider's object id, see pins.go.
+	AutoDomains []string
 }
 
 // outbound calls to the provider must never hold up a login for long

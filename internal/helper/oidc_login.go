@@ -49,7 +49,7 @@ func (s *server) oidcLogin(req Request) (Response, []*os.File) {
 		return Response{Err: "internal"}, nil
 	}
 	idp := id.String()
-	name, err := LookupUser(s.OIDC.UsersFile, id)
+	name, auto, err := s.mapIdentity(id)
 	if err != nil {
 		log.Printf("helper: oidc users file: %v", err)
 		return Response{Err: "internal", IdP: idp}, nil
@@ -64,6 +64,11 @@ func (s *server) oidcLogin(req Request) (Response, []*os.File) {
 		log.Printf("helper: oidc login refused idp=%q user=%q: account not valid", idp, u.Username)
 		return Response{Err: "denied", User: u.Username, IdP: idp}, nil
 	}
+	if auto && !s.pinOID(u.Username, id.OID) {
+		log.Printf("helper: oidc login refused idp=%q user=%q: the account is linked to a different person (object id)", idp, u.Username)
+		s.limit.Fail(host, "oidc")
+		return Response{Err: "mismatch", User: u.Username, IdP: idp}, nil
+	}
 	s.limit.Success(host, "oidc")
 	resp, files := s.complete(u, host)
 	if resp.Err == "nohome" {
@@ -72,4 +77,19 @@ func (s *server) oidcLogin(req Request) (Response, []*os.File) {
 	}
 	resp.IdP = idp
 	return resp, files
+}
+
+// mapIdentity decides which account an identity signs in as. The users file has
+// the last word: an entry there, even a "-" that refuses the person, is used
+// instead of automatic mapping. Only an identity without any entry may be
+// mapped automatically, and only for the domains that were listed.
+func (s *server) mapIdentity(id Identity) (name string, auto bool, err error) {
+	name, err = LookupUser(s.OIDC.UsersFile, id)
+	if err != nil || name != "" || len(s.OIDC.AutoDomains) == 0 {
+		return name, false, err
+	}
+	if name = autoName(id.UPN, s.OIDC.AutoDomains); name != "" {
+		return name, true, nil
+	}
+	return "", false, nil
 }

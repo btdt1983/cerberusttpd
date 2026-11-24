@@ -57,6 +57,8 @@ func serveMain(args []string) error {
 	w.ShareUsers = o.shareUsers == "on"
 	w.ShareGroups, _ = o.shareGroupList()
 	w.Status = o.status()
+	w.PasswordLogin = o.passwordLogin == "on"
+	w.ShareRequirePW = o.shareRequirePW == "on"
 	if o.oidcEnabled() {
 		w.OIDCLabel = o.oidcLabel
 	}
@@ -204,32 +206,47 @@ func (o *options) status() []web.StatusItem {
 		}
 		return "off"
 	}
+	g, _ := o.shareGroupList()
+	people := []string{}
+	if o.shareUsers == "on" {
+		people = append(people, "users")
+	}
+	if len(g) > 0 {
+		people = append(people, "groups: "+strings.Join(g, ", "))
+	}
+	sharePeople := "off"
+	if len(people) > 0 {
+		sharePeople = strings.Join(people, "; ")
+	}
+	links := onOff(o.shares == "on")
+	if o.shares == "on" {
+		links = fmt.Sprintf("on (at most %d days%s)", o.shareMaxDays, map[bool]string{true: ", password required", false: ""}[o.shareRequirePW == "on"])
+	}
+	upload := "unlimited"
+	if o.maxUpload > 0 {
+		upload = fmt.Sprintf("%d GiB", o.maxUpload>>30)
+	}
 	items := []web.StatusItem{
 		{Name: "Version", Value: version},
+		{Name: "Password sign-in", Value: onOff(o.passwordLogin == "on")},
 		{Name: "Two-factor login", Value: map[bool]string{true: "required", false: "off"}[o.twoFA == "required"]},
 		{Name: "Single sign-on", Value: onOff(o.oidcEnabled())},
+		{Name: "Administrators", Value: map[bool]string{true: "group " + o.adminGroup, false: "nobody"}[o.adminGroup != ""]},
 		{Name: "Photo albums", Value: onOff(o.albums != "off")},
-		{Name: "Share links", Value: onOff(o.shares == "on")},
-		{Name: "Sharing with people", Value: "off"},
+		{Name: "Share links", Value: links},
+		{Name: "Sharing with people", Value: sharePeople},
 		{Name: "Virus scan of uploads", Value: onOff(o.scanCommand != "")},
-		{Name: "Largest upload", Value: "unlimited"},
+		{Name: "Largest upload", Value: upload},
 		{Name: "Certificates", Value: o.mode},
 	}
-	if g, _ := o.shareGroupList(); o.shareUsers == "on" || len(g) > 0 {
-		v := []string{}
-		if o.shareUsers == "on" {
-			v = append(v, "users")
-		}
-		if len(g) > 0 {
-			v = append(v, "groups: "+strings.Join(g, ", "))
-		}
-		items[5].Value = strings.Join(v, "; ")
+	if o.loginGroup != "" {
+		items = append(items, web.StatusItem{Name: "Only members of", Value: "group " + o.loginGroup})
 	}
-	if o.shares == "on" {
-		items[4].Value = fmt.Sprintf("on (at most %d days)", o.shareMaxDays)
+	if d, _ := o.autoDomainList(); len(d) > 0 {
+		items = append(items, web.StatusItem{Name: "Automatic SSO mapping", Value: "domains: " + strings.Join(d, ", ")})
 	}
-	if o.maxUpload > 0 {
-		items[7].Value = fmt.Sprintf("%d GiB", o.maxUpload>>30)
+	if o.createHome == "on" {
+		items = append(items, web.StatusItem{Name: "Create home directories", Value: "on, below " + o.createHomeBase})
 	}
 	return items
 }

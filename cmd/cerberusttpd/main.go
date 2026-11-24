@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -53,12 +55,13 @@ func main() {
 var version = "dev"
 
 type options struct {
-	addr, root, data, mode, names, domains, email, svcUser, pamService, twoFA, config string
-	dnsProvider, dnsCreds, acmeCA, acmeHTTP, albums, shares, shareUsers, shareGroups  string
-	oidcIssuer, oidcClientID, oidcSecretFile, oidcUsers, oidcRedirect, oidcLabel      string
-	scanCommand                                                                       string
-	scanTimeout                                                                       time.Duration
-	shareMaxDays                                                                      int
+	addr, root, data, mode, names, domains, email, svcUser, pamService, twoFA, config                  string
+	dnsProvider, dnsCreds, acmeCA, acmeHTTP, albums, shares, shareUsers, shareGroups                   string
+	passwordLogin, shareRequirePW, adminGroup, loginGroup, oidcAutoDomains, createHome, createHomeBase string
+	oidcIssuer, oidcClientID, oidcSecretFile, oidcUsers, oidcRedirect, oidcLabel                       string
+	scanCommand                                                                                        string
+	scanTimeout                                                                                        time.Duration
+	shareMaxDays                                                                                       int
 
 	minUID     uint
 	maxUpload  int64
@@ -85,6 +88,13 @@ func (o *options) register(fs *flag.FlagSet) {
 	fs.StringVar(&o.shares, "shares", "off", "share links for people without an account (one file, expiry, optional password and download limit): on or off")
 	fs.StringVar(&o.shareUsers, "share-users", "off", "let users share files with chosen other users (read only): on or off")
 	fs.StringVar(&o.shareGroups, "share-groups", "", "groups users may share files with, comma separated (empty = no sharing with groups)")
+	fs.StringVar(&o.passwordLogin, "password-login", "on", "sign-in with a password (and the second factor): on or off; off needs single sign-on, nobody can then sign in while the provider is down")
+	fs.StringVar(&o.shareRequirePW, "share-require-password", "off", "every share link must have a password: on or off")
+	fs.StringVar(&o.adminGroup, "admin-group", "wheel", "members of this group are administrators (admin page); empty = nobody")
+	fs.StringVar(&o.loginGroup, "login-group", "", "when set, only members of this group may sign in (password, single sign-on, and as recipient or owner of shares)")
+	fs.StringVar(&o.oidcAutoDomains, "oidc-auto-domains", "", "single sign-on: sign in people who are not in the users file as the account named like their user name (jan@example.com), for these domains, comma separated")
+	fs.StringVar(&o.createHome, "create-home", "off", "make a missing home directory at the first sign-in (skeleton, SELinux labels): on or off")
+	fs.StringVar(&o.createHomeBase, "create-home-base", "/home", "create-home only creates homes below this directory")
 	fs.IntVar(&o.shareMaxDays, "share-max-days", 30, "the longest a share link may stay valid, in days")
 	fs.StringVar(&o.oidcIssuer, "oidc-issuer", "", "single sign-on: the provider, for Microsoft https://login.microsoftonline.com/<tenant-id>/v2.0")
 	fs.StringVar(&o.oidcClientID, "oidc-client-id", "", "single sign-on: application (client) ID")
@@ -105,7 +115,7 @@ func (o *options) args() []string {
 		"-names", o.names, "-domain", o.domains, "-acme-email", o.email,
 		"-dns-provider", o.dnsProvider, "-acme-ca", o.acmeCA, "-acme-http-addr", o.acmeHTTP,
 		"-user", o.svcUser, "-pam-service", o.pamService, "-min-uid", fmt.Sprint(o.minUID),
-		"-2fa", o.twoFA, "-albums", o.albums, "-scan-command", o.scanCommand, "-shares", o.shares, "-share-users", o.shareUsers, "-share-groups", o.shareGroups, "-share-max-days", fmt.Sprint(o.shareMaxDays), "-oidc-issuer", o.oidcIssuer, "-oidc-label", o.oidcLabel, "-max-upload", fmt.Sprint(o.maxUpload), "-stale-after", o.staleAfter.String(),
+		"-2fa", o.twoFA, "-albums", o.albums, "-scan-command", o.scanCommand, "-password-login", o.passwordLogin, "-share-require-password", o.shareRequirePW, "-admin-group", o.adminGroup, "-login-group", o.loginGroup, "-oidc-auto-domains", o.oidcAutoDomains, "-create-home", o.createHome, "-create-home-base", o.createHomeBase, "-shares", o.shares, "-share-users", o.shareUsers, "-share-groups", o.shareGroups, "-share-max-days", fmt.Sprint(o.shareMaxDays), "-oidc-issuer", o.oidcIssuer, "-oidc-label", o.oidcLabel, "-max-upload", fmt.Sprint(o.maxUpload), "-stale-after", o.staleAfter.String(),
 	}
 }
 
@@ -132,6 +142,28 @@ func (o *options) resolve(fs *flag.FlagSet) error {
 	}
 	if _, err := o.shareGroupList(); err != nil {
 		return err
+	}
+	for name, v := range map[string]string{"password-login": o.passwordLogin, "share-require-password": o.shareRequirePW, "create-home": o.createHome} {
+		if v != "on" && v != "off" {
+			return fmt.Errorf("%s must be on or off (it is %q)", name, v)
+		}
+	}
+	for name, v := range map[string]string{"admin-group": o.adminGroup, "login-group": o.loginGroup} {
+		if v != "" && !helper.ValidUser(v) {
+			return fmt.Errorf("%s: %q is not a valid group name", name, v)
+		}
+	}
+	if o.passwordLogin == "off" && !o.oidcEnabled() {
+		return errors.New("password-login = off needs single sign-on (oidc-*), otherwise nobody could sign in")
+	}
+	if _, err := o.autoDomainList(); err != nil {
+		return err
+	}
+	if o.oidcAutoDomains != "" && !o.oidcEnabled() {
+		return errors.New("oidc-auto-domains needs single sign-on (oidc-*)")
+	}
+	if b := o.createHomeBase; !strings.HasPrefix(b, "/") || filepath.Clean(b) != b || b == "/" {
+		return fmt.Errorf("create-home-base must be an absolute path other than /, without a trailing slash (it is %q)", b)
 	}
 	if o.shareMaxDays < 1 || o.shareMaxDays > 3650 {
 		return fmt.Errorf("share-max-days must be between 1 and 3650 (it is %d)", o.shareMaxDays)
@@ -164,3 +196,21 @@ func (o *options) shareGroupList() ([]string, error) {
 	}
 	return out, nil
 }
+
+// autoDomainList parses oidc-auto-domains.
+func (o *options) autoDomainList() ([]string, error) {
+	var out []string
+	for _, d := range strings.Split(o.oidcAutoDomains, ",") {
+		d = strings.ToLower(strings.TrimSpace(d))
+		if d == "" {
+			continue
+		}
+		if !domainRE.MatchString(d) {
+			return nil, fmt.Errorf("oidc-auto-domains: %q is not a domain name", d)
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+var domainRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)

@@ -218,6 +218,9 @@ func (s *server) shareCreate(req Request) Response {
 	if !ok {
 		return Response{Err: "denied"}
 	}
+	if s.ShareRequirePW && req.Password == "" {
+		return Response{Err: "needpw"}
+	}
 	name := cleanSharePath(req.Path)
 	ttl := time.Duration(req.TTL) * time.Second
 	if name == "" || ttl <= 0 || ttl > s.ShareMaxTTL || req.Max < 0 || req.Max > shareMaxUses || len(req.Password) > sharePasswordMax {
@@ -329,6 +332,12 @@ func (s *server) shareInfo(req Request) Response {
 	s.shares.mu.Lock()
 	why := usable(r, time.Now())
 	resp := Response{OK: true, ShareID: r.ID, Name: path.Base(r.Path), Expires: r.Expires, HasPW: r.PW != ""}
+	if r.PW != "" {
+		resp.Name = "" // the file name is for people who know the password
+	}
+	if why == "" && s.ShareRequirePW && r.PW == "" {
+		why = "nopassword" // a link made before the policy was switched on
+	}
 	s.shares.mu.Unlock()
 	if why != "" {
 		return Response{Err: "unavailable", Detail: why, ShareID: r.ID}
@@ -357,6 +366,9 @@ func (s *server) shareOpen(req Request) (Response, []*os.File) {
 	why := usable(rec, time.Now())
 	pw := rec.PW
 	st.mu.Unlock()
+	if why == "" && s.ShareRequirePW && pw == "" {
+		why = "nopassword"
+	}
 	if why != "" {
 		return Response{Err: "unavailable", Detail: why, ShareID: id}, nil
 	}
@@ -434,7 +446,7 @@ func (s *server) refund(rec *shareRec) {
 // openAsOwner starts a worker with the owner's credentials, has it open the
 // stored path and lets the worker go again. Only a regular file qualifies.
 func (s *server) openAsOwner(u *user.User, rec *shareRec) (Response, []*os.File) {
-	cred, _, err := credFor(u)
+	cred, _, err := credFor(u, "")
 	if err != nil {
 		log.Printf("helper: share %s: credentials for %q: %v", rec.ID, u.Username, err)
 		return Response{Err: "internal", ShareID: rec.ID}, nil
